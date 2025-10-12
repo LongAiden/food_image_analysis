@@ -85,7 +85,8 @@ async def health_check():
 # Main analysis endpoint - accepts multipart/form-data (file upload)
 @app.post("/analyze", response_model=FoodAnalysisResponse, tags=["Analysis"])
 async def analyze_food_image(
-    file: UploadFile = File(..., description="Food image file (JPEG, PNG, WEBP)")
+    file: UploadFile = File(...,
+                            description="Food image file (JPEG, PNG, WEBP)")
 ):
     """
     Analyze a food image and return nutritional information.
@@ -141,7 +142,8 @@ async def analyze_food_image(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logfire.error(f"Analysis error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
 # Alternative endpoint - accepts JSON with base64 encoded image
@@ -203,7 +205,8 @@ async def analyze_food_image_base64(request: FoodAnalysisRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logfire.error(f"Analysis error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
 # Get analysis by ID

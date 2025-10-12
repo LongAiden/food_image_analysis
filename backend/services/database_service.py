@@ -22,12 +22,14 @@ class DatabaseService:
         self.key = key
 
         if not self.url or not self.key:
-            raise ValueError("SUPABASE_PROJECT_URL and SUPABASE_SERVICE_KEY must be set")
+            raise ValueError(
+                "SUPABASE_PROJECT_URL and SUPABASE_SERVICE_KEY must be set")
 
         self.client: Client = create_client(self.url, self.key)
         self.table_name = "food_analyses"
 
-        logfire.info(f"✓ Database Service initialized with table: {self.table_name}")
+        logfire.info(
+            f"✓ Database Service initialized with table: {self.table_name}")
 
     async def create_table(self) -> bool:
         """Create the food_analyses table if it doesn't exist
@@ -61,7 +63,7 @@ class DatabaseService:
         return True
 
     async def save_analysis(self, image_path: str, nutrition: NutritionAnalysis,
-                           analysis_id: Optional[UUID] = None) -> dict:
+                            analysis_id: Optional[UUID] = None) -> dict:
         """Save analysis record to database
 
         Args:
@@ -84,9 +86,11 @@ class DatabaseService:
             if analysis_id:
                 record["id"] = str(analysis_id)
 
-            logfire.info(f"Saving analysis to database: {record.get('id', 'new')}")
+            logfire.info(
+                f"Saving analysis to database: {record.get('id', 'new')}")
 
-            response = self.client.table(self.table_name).insert(record).execute()
+            response = self.client.table(
+                self.table_name).insert(record).execute()
 
             logfire.info(f"✓ Analysis saved successfully")
 
@@ -106,7 +110,8 @@ class DatabaseService:
             Analysis record or None
         """
         try:
-            response = self.client.table(self.table_name).select("*").eq("id", str(analysis_id)).execute()
+            response = self.client.table(self.table_name).select(
+                "*").eq("id", str(analysis_id)).execute()
 
             if response.data:
                 return response.data[0]
@@ -153,7 +158,8 @@ class DatabaseService:
             True if deleted successfully
         """
         try:
-            self.client.table(self.table_name).delete().eq("id", str(analysis_id)).execute()
+            self.client.table(self.table_name).delete().eq(
+                "id", str(analysis_id)).execute()
             logfire.info(f"✓ Deleted analysis: {analysis_id}")
             return True
 
@@ -169,16 +175,21 @@ class DatabaseService:
         """
         try:
             # Get total count
-            count_response = self.client.table(self.table_name).select("id", count="exact").execute()
-            total_count = count_response.count if hasattr(count_response, 'count') else 0
+            count_response = self.client.table(
+                self.table_name).select("id", count="exact").execute()
+            total_count = count_response.count if hasattr(
+                count_response, 'count') else 0
 
             # Get average calories (example aggregation)
             # Note: For complex aggregations, you may want to use PostgreSQL functions or RPC
             recent_data = await self.get_recent_analyses(limit=100)
 
-            avg_calories = sum(record['calories'] for record in recent_data) / len(recent_data) if recent_data else 0
-            avg_protein = sum(record['protein'] for record in recent_data) / len(recent_data) if recent_data else 0
-            avg_sugar = sum(record['sugar'] for record in recent_data) / len(recent_data) if recent_data else 0
+            avg_calories = sum(
+                record['calories'] for record in recent_data) / len(recent_data) if recent_data else 0
+            avg_protein = sum(
+                record['protein'] for record in recent_data) / len(recent_data) if recent_data else 0
+            avg_sugar = sum(record['sugar'] for record in recent_data) / \
+                len(recent_data) if recent_data else 0
 
             return {
                 "total_analyses": total_count,

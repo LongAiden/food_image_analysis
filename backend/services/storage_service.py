@@ -22,11 +22,13 @@ class StorageService:
         self.bucket_name = bucket_name
 
         if not self.url or not self.key:
-            raise ValueError("SUPABASE_PROJECT_URL and SUPABASE_SERVICE_KEY must be set")
+            raise ValueError(
+                "SUPABASE_PROJECT_URL and SUPABASE_SERVICE_KEY must be set")
 
         self.client: Client = create_client(self.url, self.key)
 
-        logfire.info(f"✓ Storage Service initialized with bucket: {self.bucket_name}")
+        logfire.info(
+            f"✓ Storage Service initialized with bucket: {self.bucket_name}")
 
     def ensure_bucket_exists(self) -> bool:
         """Ensure the bucket exists, create if it doesn't
@@ -81,14 +83,15 @@ class StorageService:
             logfire.info(f"Uploading image to: {storage_path}")
 
             # Upload to Supabase
-            response = self.client.storage.from_(self.bucket_name).upload(
+            self.client.storage.from_(self.bucket_name).upload(
                 path=storage_path,
                 file=image_data,
                 file_options={"content-type": content_type}
             )
 
             # Get public URL
-            public_url = self.client.storage.from_(self.bucket_name).get_public_url(storage_path)
+            public_url = self.client.storage.from_(
+                self.bucket_name).get_public_url(storage_path)
 
             logfire.info(f"✓ Image uploaded successfully: {storage_path}")
 
@@ -104,7 +107,6 @@ class StorageService:
 
     def delete_image(self, path: str) -> bool:
         """Delete image from storage
-
         Args:
             path: Storage path of the image
 

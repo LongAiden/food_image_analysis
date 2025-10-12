@@ -11,8 +11,7 @@ from backend.models.models import (
     FoodAnalysisResponse
 )
 from backend.services.gemini_analyzer import GeminiAnalyzer
-from backend.services.storage_service import StorageService
-from backend.services.database_service import DatabaseService
+from backend.services.supabase_service import StorageService, DatabaseService
 
 from dotenv import load_dotenv
 
@@ -21,9 +20,10 @@ load_dotenv()
 SUPABASE_URL = os.getenv('SUPABASE_PROJECT_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_KEY')
 SUPABASE_BUCKET = os.getenv('SUPABASE_BUCKETS')
+SUPABASE_TABLE = os.getenv('SUPABASE_TABLE')
+
 LOGFIRE_TOKEN = os.getenv('LOGFIRE_WRITE_TOKEN')
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-
 
 # Initialize Logfire
 logfire.configure()
@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
     # Initialize services
     app.state.gemini_analyzer = GeminiAnalyzer(api_key=GOOGLE_API_KEY)
     app.state.storage_service = StorageService(url=SUPABASE_URL, key=SUPABASE_KEY, bucket_name=SUPABASE_BUCKET)
-    app.state.database_service = DatabaseService()
+    app.state.database_service = DatabaseService(url=SUPABASE_URL, key=SUPABASE_KEY, table_name=SUPABASE_TABLE)
 
     logfire.info("✓ All services initialized")
 

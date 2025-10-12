@@ -4,11 +4,6 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 from typing import List, Optional
 
-import google.generativeai as genai
-from pydantic_ai import Agent
-from pydantic_ai.models.google import GoogleModel
-from pydantic_ai.providers.google import GoogleProvider
-
 load_dotenv()
 
 # Initialize client

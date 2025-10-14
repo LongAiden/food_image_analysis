@@ -1,11 +1,10 @@
-import os
 import logfire
 from typing import Optional
 from datetime import datetime
 from uuid import uuid4, UUID
 from supabase import Client, create_client
 from backend.models.models import NutritionAnalysis
-
+from typing import List, Optional
 
 class DatabaseService:
     """Service for managing analysis records in Supabase database"""
@@ -322,7 +321,7 @@ class StorageService:
         """
         return self.client.storage.from_(self.bucket_name).get_public_url(path)
 
-    def list_images(self, limit: int = 100, offset: int = 0) -> list:
+    def list_images(self, limit: int = 100, offset: int = 0) -> List:
         """List images in the bucket
 
         Args:

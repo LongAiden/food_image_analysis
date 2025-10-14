@@ -26,7 +26,7 @@ LOGFIRE_TOKEN = os.getenv('LOGFIRE_WRITE_TOKEN')
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 
 # Initialize Logfire
-logfire.configure()
+logfire.configure(token=LOGFIRE_TOKEN)
 logfire.info("Starting Food Analysis API")
 
 
@@ -39,8 +39,10 @@ async def lifespan(app: FastAPI):
 
     # Initialize services
     app.state.gemini_analyzer = GeminiAnalyzer(api_key=GOOGLE_API_KEY)
-    app.state.storage_service = StorageService(url=SUPABASE_URL, key=SUPABASE_KEY, bucket_name=SUPABASE_BUCKET)
-    app.state.database_service = DatabaseService(url=SUPABASE_URL, key=SUPABASE_KEY, table_name=SUPABASE_TABLE)
+    app.state.storage_service = StorageService(
+        url=SUPABASE_URL, key=SUPABASE_KEY, bucket_name=SUPABASE_BUCKET)
+    app.state.database_service = DatabaseService(
+        url=SUPABASE_URL, key=SUPABASE_KEY, table_name=SUPABASE_TABLE)
 
     logfire.info("✓ All services initialized")
 
@@ -85,8 +87,7 @@ async def health_check():
 # Main analysis endpoint - accepts multipart/form-data (file upload)
 @app.post("/analyze", response_model=FoodAnalysisResponse, tags=["Analysis"])
 async def analyze_food_image(
-    file: UploadFile = File(...,
-                            description="Food image file (JPEG, PNG, WEBP)")
+    file: UploadFile = File(...,description="Food image file (JPEG, PNG, WEBP)")
 ):
     """
     Analyze a food image and return nutritional information.
@@ -286,7 +287,7 @@ if __name__ == "__main__":
 
     # Run the server
     uvicorn.run(
-        "backend.main:app",
+        "main:app",
         host="0.0.0.0",
         port=8000,
         reload=True,

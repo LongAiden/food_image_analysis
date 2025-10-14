@@ -4,9 +4,9 @@ import logfire
 from typing import Optional
 from PIL import Image
 from io import BytesIO
-import google.generativeai as genai
 from pydantic_ai import Agent
-from pydantic_ai.models.gemini import GoogleModel
+from pydantic_ai.models.google import GoogleModel
+from pydantic_ai.providers.google import GoogleProvider
 
 from backend.models.models import NutritionAnalysis, SYSTEM_PROMPT
 
@@ -25,23 +25,68 @@ class GeminiAnalyzer: # Add key
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY not found in environment variables")
 
-        # Configure Gemini
-        genai.configure(api_key=self.api_key)
-
+        provider = GoogleProvider(api_key=self.api_key)
         # Initialize Pydantic AI Agent with Gemini model
-        self.model = GoogleModel(
-            model_name='gemini-2.5-flash',
-            api_key=self.api_key
-        )
+        self.model = GoogleModel('gemini-2.5-flash', provider=provider)
 
         # Create Pydantic AI agent with structured output
         self.agent = Agent(
             model=self.model,
-            result_type=NutritionAnalysis,
+            output_type=NutritionAnalysis,
             system_prompt=SYSTEM_PROMPT
         )
 
         logfire.info("✓ Gemini Analyzer initialized successfully")
+    
+    async def analyze_image_from_path(self, image_path: str):
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"Image file not found at path: {image_path}")
+
+        # 1. Read the raw image data (bytes) from the local file path
+        with open(image_path, "rb") as f:
+            image_data = f.read() # Read data into 'image_data' (bytes object)
+
+        # 2. Convert the byte data into a PIL Image object
+        #    This is the crucial step that was missing/misplaced.
+        img_object = Image.open(BytesIO(image_data))
+        
+        # logfire.info is a placeholder, uncomment if you are using it
+        # logfire.info(f"Image loaded: {img_object.format} {img_object.size}")
+
+        # FIX: Convert RGBA to RGB before proceeding, as JPEG does not support the Alpha channel.
+        if img_object.mode == 'RGBA':
+            # Create a white background
+            background = Image.new('RGB', img_object.size, (255, 255, 255))
+            # Paste the RGBA image onto the background, effectively removing transparency
+            background.paste(img_object, mask=img_object.split()[3]) # Use the alpha channel as the mask
+            img_object = background # Update img_object to the new RGB image
+        
+        # Encode image to base64 for Gemini (Existing code logic)
+        buffered = BytesIO()
+        
+        # Determine the format to save as. We can now safely set this to 'JPEG' 
+        # since we've handled the RGBA conversion.
+        save_format = "JPEG"
+        
+        # Save the processed PIL Image object to the buffer
+        img_object.save(buffered, format=save_format)
+        
+        img_base64 = base64.b64encode(buffered.getvalue()).decode()
+
+        # Run Pydantic AI agent with image (Existing code logic)
+        # Note: We pass the image data as part of the prompt
+        result = await self.agent.run(
+            f"Analyze this food image and provide nutritional information.",
+            message_history=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Analyze this food image"},
+                    # Ensure the data URI header matches the save_format
+                    {"type": "image_url", "image_url": {"url": f"data:image/{save_format.lower()};base64,{img_base64}"}}
+                ]
+            }]
+        )
+        return result
 
     async def analyze_image(self, image_data: bytes, filename: str = "image.jpg") -> NutritionAnalysis:
         """Analyze food image and return nutrition information
@@ -57,12 +102,21 @@ class GeminiAnalyzer: # Add key
             logfire.info(f"Starting analysis for image: {filename}")
 
             # Validate image
-            image = Image.open(BytesIO(image_data))
-            logfire.info(f"Image loaded: {image.format} {image.size}")
+            img_object = Image.open(BytesIO(image_data))
+
+            # FIX: Convert RGBA to RGB before proceeding, as JPEG does not support the Alpha channel.
+            if img_object.mode == 'RGBA':
+                # Create a white background
+                background = Image.new('RGB', img_object.size, (255, 255, 255))
+                # Paste the RGBA image onto the background, effectively removing transparency
+                background.paste(img_object, mask=img_object.split()[3]) # Use the alpha channel as the mask
+                img_object = background # Update img_object to the new RGB image
+
+            logfire.info(f"Image loaded: {img_object.format} {img_object.size}")
 
             # Encode image to base64 for Gemini
             buffered = BytesIO()
-            image.save(buffered, format=image.format or "JPEG")
+            img_object.save(buffered, format=img_object.format or "JPEG")
             img_base64 = base64.b64encode(buffered.getvalue()).decode()
 
             # Run Pydantic AI agent with image
@@ -78,7 +132,7 @@ class GeminiAnalyzer: # Add key
                 }]
             )
 
-            nutrition_data = result.data
+            nutrition_data = result.output
 
             logfire.info(
                 f"Analysis completed for {filename}",

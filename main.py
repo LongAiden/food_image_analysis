@@ -87,7 +87,8 @@ async def health_check():
 # Main analysis endpoint - accepts multipart/form-data (file upload)
 @app.post("/analyze", response_model=FoodAnalysisResponse, tags=["Analysis"])
 async def analyze_food_image(
-    file: UploadFile = File(...,description="Food image file (JPEG, PNG, WEBP)")
+    file: UploadFile = File(...,
+                            description="Food image file (JPEG, PNG, WEBP)")
 ):
     """
     Analyze a food image and return nutritional information.

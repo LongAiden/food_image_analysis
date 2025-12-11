@@ -329,3 +329,5 @@ For issues and questions, please open an issue on the repository.
 - Powered by Google Gemini AI
 - Infrastructure by Supabase
 - Monitoring by Logfire
+
+2025

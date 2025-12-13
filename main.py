@@ -10,7 +10,7 @@ import httpx
 from backend.config import Settings
 from backend.models.models import FoodAnalysisRequest, FoodAnalysisResponse
 from backend.services.gemini_analyzer import GeminiAnalyzer
-from backend.services.image_utils import decode_base64_image, prepare_image
+from backend.services.image_utils import decode_base64_image, prepare_image, PreparedImage
 from backend.services.supabase_service import DatabaseService, StorageService
 
 # Load and validate settings once
@@ -82,25 +82,45 @@ def get_database(request: Request) -> DatabaseService:
 async def fetch_telegram_file(file_id: str, settings: Settings) -> tuple[bytes, str]:
     """Download a file from Telegram using the bot token."""
     if not settings.telegram_bot_token:
-        raise HTTPException(status_code=400, detail="Telegram bot token not configured")
+        raise HTTPException(
+            status_code=400, detail="Telegram bot token not configured")
 
     base_url = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
     async with httpx.AsyncClient(timeout=20) as client:
         get_file_resp = await client.get(f"{base_url}/getFile", params={"file_id": file_id})
         if get_file_resp.status_code != 200:
-            raise HTTPException(status_code=502, detail="Failed to fetch Telegram file metadata")
+            logfire.error(
+                f"Failed to fetch Telegram file metadata: {get_file_resp.text}")
+            raise HTTPException(
+                status_code=502, detail="Failed to fetch Telegram file metadata")
         file_info = get_file_resp.json().get("result")
         if not file_info or "file_path" not in file_info:
-            raise HTTPException(status_code=400, detail="Invalid Telegram file_id")
+            logfire.error(f"Invalid Telegram file_id: {get_file_resp.text}")
+            raise HTTPException(
+                status_code=400, detail="Invalid Telegram file_id")
 
         file_path = file_info["file_path"]
         download_url = f"https://api.telegram.org/file/bot{settings.telegram_bot_token}/{file_path}"
         download_resp = await client.get(download_url)
         if download_resp.status_code != 200:
-            raise HTTPException(status_code=502, detail="Failed to download Telegram file")
+            logfire.error(f"Failed to download Telegram file : {download_resp.text}")
+            raise HTTPException(
+                status_code=502, detail="Failed to download Telegram file")
 
         filename = file_path.rsplit("/", 1)[-1]
         return download_resp.content, filename
+
+
+async def send_telegram_message(chat_id: int, text: str, settings: Settings) -> None:
+    """Send a text message back to a Telegram chat."""
+    if not settings.telegram_bot_token:
+        return
+    base_url = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
+    async with httpx.AsyncClient(timeout=15) as client:
+        await client.post(
+            f"{base_url}/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+        )
 
 
 @app.get("/health", tags=["System"])
@@ -117,7 +137,8 @@ async def root():
 
 @app.post("/analyze", response_model=FoodAnalysisResponse, tags=["Analysis"])
 async def analyze_food_image(
-    file: UploadFile = File(..., description="Food image file (JPEG, PNG, WEBP)"),
+    file: UploadFile = File(...,
+                            description="Food image file (JPEG, PNG, WEBP)"),
     analyzer: GeminiAnalyzer = Depends(get_analyzer),
     storage: StorageService = Depends(get_storage),
     database: DatabaseService = Depends(get_database),
@@ -126,7 +147,8 @@ async def analyze_food_image(
     """Analyze a food image and return nutritional information."""
     try:
         image_data = await file.read()
-        prepared = prepare_image(image_data, max_size_mb=settings.max_image_size_mb)
+        prepared = prepare_image(
+            image_data, max_size_mb=settings.max_image_size_mb)
 
         nutrition_analysis = await analyzer.analyze_image(
             prepared=prepared, filename=file.filename or "upload.jpg"
@@ -170,7 +192,8 @@ async def analyze_food_image_base64(
     """Analyze a food image from base64 encoded data."""
     try:
         image_data = decode_base64_image(request.image_data)
-        prepared = prepare_image(image_data, max_size_mb=settings.max_image_size_mb)
+        prepared = prepare_image(
+            image_data, max_size_mb=settings.max_image_size_mb)
 
         nutrition_analysis = await analyzer.analyze_image(
             prepared=prepared, filename=request.filename or "image.jpg"
@@ -204,15 +227,21 @@ async def analyze_food_image_base64(
 @app.post("/analyze-telegram", response_model=FoodAnalysisResponse, tags=["Analysis"])
 async def analyze_food_image_telegram(
     file_id: str,
+    chat_id: int | None = None,
     analyzer: GeminiAnalyzer = Depends(get_analyzer),
     storage: StorageService = Depends(get_storage),
     database: DatabaseService = Depends(get_database),
     settings: Settings = Depends(get_settings),
 ):
     """Analyze an image referenced by a Telegram file_id."""
+    nutrition_analysis = None
     try:
+        if chat_id:
+            await send_telegram_message(chat_id, "Analyzing image...", settings)
+
         image_data, filename = await fetch_telegram_file(file_id=file_id, settings=settings)
-        prepared = prepare_image(image_data, max_size_mb=settings.max_image_size_mb)
+        prepared = prepare_image(
+            image_data, max_size_mb=settings.max_image_size_mb)
 
         nutrition_analysis = await analyzer.analyze_image(
             prepared=prepared, filename=filename
@@ -240,6 +269,102 @@ async def analyze_food_image_telegram(
     except Exception as exc:
         logfire.error(f"Analysis error (telegram): {exc}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}")
+    finally:
+        if chat_id:
+            try:
+                if not nutrition_analysis:
+                    return
+                reply = (
+                    f"Analysis complete:\n"
+                    f"Calories: {nutrition_analysis.calories}\n"
+                    f"Protein: {nutrition_analysis.protein} g\n"
+                    f"Sugar: {nutrition_analysis.sugar} g"
+                )
+                await send_telegram_message(chat_id, reply, settings)
+            except Exception:
+                # best-effort; avoid masking original exceptions
+                pass
+
+
+@app.post("/telegram/webhook", include_in_schema=False)
+async def telegram_webhook(
+    update: dict,
+    analyzer: GeminiAnalyzer = Depends(get_analyzer),
+    storage: StorageService = Depends(get_storage),
+    database: DatabaseService = Depends(get_database),
+    settings: Settings = Depends(get_settings),
+):
+    """
+    Telegram webhook handler.
+    - Expects standard Telegram update payload.
+    - Picks the largest photo, analyzes it, stores results, and replies with macros.
+    """
+    message = update.get("message") or update.get("edited_message")
+    if not message:
+        return JSONResponse({"ok": True})
+
+    chat_id = message["chat"]["id"]
+    if settings.telegram_allowed_chat_ids and chat_id not in settings.telegram_allowed_chat_ids:
+        # Ignore unauthorized chats silently
+        return JSONResponse({"ok": True})
+
+    caption = message.get("caption") or message.get("text") or ""
+    photos = message.get("photo") or []
+    if not photos:
+        await send_telegram_message(chat_id, "Please send a photo.", settings)
+        return JSONResponse({"ok": True})
+
+    file_id = photos[-1]["file_id"]  # largest resolution photo
+    nutrition_analysis = None
+
+    try:
+        await send_telegram_message(chat_id, "Analyzing image...", settings)
+
+        image_data, filename = await fetch_telegram_file(file_id=file_id, settings=settings)
+        prepared = prepare_image(image_data, max_size_mb=settings.max_image_size_mb)
+
+        display_name = caption.strip()[:32] or filename
+
+        nutrition_analysis = await analyzer.analyze_image(
+            prepared=prepared, filename=display_name
+        )
+
+        storage_result = await storage.upload_image(
+            image_data=prepared.image_bytes,
+            filename=display_name,
+            content_type=prepared.content_type,
+        )
+
+        db_record = await database.save_analysis(
+            image_path=storage_result["url"], nutrition=nutrition_analysis
+        )
+
+        reply = (
+            f"Analysis complete:\n"
+            f"Calories: {nutrition_analysis.calories}\n"
+            f"Protein: {nutrition_analysis.protein} g\n"
+            f"Sugar: {nutrition_analysis.sugar} g"
+        )
+        await send_telegram_message(chat_id, reply, settings)
+
+        return JSONResponse(
+            {
+                "ok": True,
+                "analysis_id": db_record.get("id"),
+                "image_url": storage_result["url"],
+            }
+        )
+
+    except ValueError as exc:
+        await send_telegram_message(chat_id, f"Validation error: {exc}", settings)
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+    except HTTPException as exc:
+        await send_telegram_message(chat_id, f"Error: {exc.detail}", settings)
+        raise
+    except Exception as exc:
+        logfire.error(f"Telegram webhook error: {exc}")
+        await send_telegram_message(chat_id, "Analysis failed. Please try again later.", settings)
+        return JSONResponse(status_code=500, content={"detail": "Analysis failed"})
 
 
 @app.get("/analysis/{analysis_id}", tags=["History"])

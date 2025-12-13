@@ -4,9 +4,9 @@ uvicorn[standard]==0.32.0
 python-multipart==0.0.12
 
 # Pydantic
-pydantic==2.9.2
-pydantic-ai==0.0.14
-pydantic-settings==2.6.0
+pydantic
+pydantic-ai
+pydantic-settings
 
 # AI/ML
 google-generativeai==0.8.3
@@ -14,12 +14,15 @@ google-generativeai==0.8.3
 # Database & Storage
 supabase==2.9.0
 postgrest==0.17.2
+griffe==0.49.0
 
 # Logging & Monitoring
-logfire==0.59.0
+logfire
+logfire[fastapi]
+
 
 # Image Processing
-Pillow==11.0.0
+Pillow
 
 # Environment & Utils
 python-dotenv==1.0.1

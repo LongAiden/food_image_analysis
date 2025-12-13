@@ -153,6 +153,11 @@ Telegram (file_id):
 curl -X POST "http://localhost:8000/analyze-telegram?file_id=<telegram_file_id>"
 ```
 
+Telegram bot delivery:
+- If you provide `TELEGRAM_WEBHOOK_URL`, the server registers the webhook on startup.
+- If no webhook URL is set, the app now falls back to long-polling automatically — just run `python main.py` and send the bot a photo.
+- Optional: set `ENABLE_NGROK=true` (and ensure `ngrok` is on PATH). On startup the app will open a tunnel on `NGROK_PORT` (default 8000), auto-set `TELEGRAM_WEBHOOK_URL`, and register the webhook for you.
+
 History:
 ```bash
 curl "http://localhost:8000/history?limit=5"

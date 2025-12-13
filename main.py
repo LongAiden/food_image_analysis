@@ -5,6 +5,7 @@ import logfire
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
+import httpx
 
 from backend.config import Settings
 from backend.models.models import FoodAnalysisRequest, FoodAnalysisResponse
@@ -76,6 +77,30 @@ def get_storage(request: Request) -> StorageService:
 
 def get_database(request: Request) -> DatabaseService:
     return request.app.state.database_service
+
+
+async def fetch_telegram_file(file_id: str, settings: Settings) -> tuple[bytes, str]:
+    """Download a file from Telegram using the bot token."""
+    if not settings.telegram_bot_token:
+        raise HTTPException(status_code=400, detail="Telegram bot token not configured")
+
+    base_url = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
+    async with httpx.AsyncClient(timeout=20) as client:
+        get_file_resp = await client.get(f"{base_url}/getFile", params={"file_id": file_id})
+        if get_file_resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="Failed to fetch Telegram file metadata")
+        file_info = get_file_resp.json().get("result")
+        if not file_info or "file_path" not in file_info:
+            raise HTTPException(status_code=400, detail="Invalid Telegram file_id")
+
+        file_path = file_info["file_path"]
+        download_url = f"https://api.telegram.org/file/bot{settings.telegram_bot_token}/{file_path}"
+        download_resp = await client.get(download_url)
+        if download_resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="Failed to download Telegram file")
+
+        filename = file_path.rsplit("/", 1)[-1]
+        return download_resp.content, filename
 
 
 @app.get("/health", tags=["System"])
@@ -173,6 +198,47 @@ async def analyze_food_image_base64(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logfire.error(f"Analysis error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}")
+
+
+@app.post("/analyze-telegram", response_model=FoodAnalysisResponse, tags=["Analysis"])
+async def analyze_food_image_telegram(
+    file_id: str,
+    analyzer: GeminiAnalyzer = Depends(get_analyzer),
+    storage: StorageService = Depends(get_storage),
+    database: DatabaseService = Depends(get_database),
+    settings: Settings = Depends(get_settings),
+):
+    """Analyze an image referenced by a Telegram file_id."""
+    try:
+        image_data, filename = await fetch_telegram_file(file_id=file_id, settings=settings)
+        prepared = prepare_image(image_data, max_size_mb=settings.max_image_size_mb)
+
+        nutrition_analysis = await analyzer.analyze_image(
+            prepared=prepared, filename=filename
+        )
+
+        storage_result = await storage.upload_image(
+            image_data=prepared.image_bytes,
+            filename=filename,
+            content_type=prepared.content_type,
+        )
+
+        db_record = await database.save_analysis(
+            image_path=storage_result["url"], nutrition=nutrition_analysis
+        )
+
+        return FoodAnalysisResponse(
+            analysis_id=UUID(db_record["id"]),
+            nutrition=nutrition_analysis,
+            image_url=storage_result["url"],
+            timestamp=db_record["created_at"],
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logfire.error(f"Analysis error (telegram): {exc}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}")
 
 

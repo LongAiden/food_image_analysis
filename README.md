@@ -4,16 +4,16 @@ FastAPI service that analyzes food images with Google Gemini and returns structu
 
 ## Features
 
-- AI-powered analysis via Gemini 2.5 Flash (Pydantic-AI structured output)
-- Upload via multipart or base64 JSON
+- AI-powered analysis via Gemini (structured output)
+- Upload via multipart, base64 JSON, or Telegram file_id
 - Supabase Storage for images + Supabase Postgres for results/history
 - FastAPI docs (`/docs`, `/redoc`) and health check
 - Logfire instrumentation for observability
 
 ## Tech Stack
 
-- FastAPI, Pydantic v2, Pydantic-AI, Pillow
-- Gemini 2.5 Flash (Google Generative AI)
+- FastAPI, Pydantic v2, Pillow
+- Google Generative AI (Gemini)
 - Supabase (Postgres + Storage)
 - Logfire
 - Uvicorn
@@ -22,21 +22,21 @@ FastAPI service that analyzes food images with Google Gemini and returns structu
 
 ```
 food_image_analysis/
-+- main.py                      # FastAPI entrypoint (lifespan + routes)
-+- backend/
-�  +- config.py                 # Pydantic Settings (env-validated config)
-�  +- models/
-�  �  +- models.py              # Pydantic models & schemas
-�  +- services/
-�     +- image_utils.py         # Image validation/normalization helpers
-�     +- gemini_analyzer.py     # Gemini AI integration (Pydantic-AI)
-�     +- supabase_service.py    # Supabase DB & Storage services
-+- frontend/                    # (optional frontend)
-+- images/                      # Sample images
-+- requirements.txt             # Python dependencies
-+- .env.example                 # Environment variables template
-+- README.md
-+- WORKFLOW.md                  # Detailed workflow guide
+├─ main.py                      # FastAPI entrypoint (lifespan + routes)
+├─ backend/
+│  ├─ config.py                 # Pydantic Settings (env-validated config)
+│  ├─ models/
+│  │  └─ models.py              # Pydantic models & schemas
+│  └─ services/
+│     ├─ image_utils.py         # Image validation/normalization helpers
+│     ├─ gemini_analyzer.py     # Gemini AI integration
+│     └─ supabase_service.py    # Supabase DB & Storage services
+├─ frontend/                    # (optional frontend)
+├─ images/                      # Sample images
+├─ requirements.txt             # Python dependencies
+├─ .env.example                 # Environment variables template
+├─ README.md
+└─ WORKFLOW.md                  # Detailed workflow guide
 ```
 
 ## Installation
@@ -46,7 +46,8 @@ food_image_analysis/
 - Python 3.9+
 - Supabase account (service role key)
 - Google AI API key (Gemini)
-- Logfire token (optional, for monitoring)
+- Logfire token (optional)
+- Telegram bot token (optional, for Telegram uploads)
 
 ### Setup
 
@@ -74,6 +75,7 @@ SUPABASE_BUCKETS=food-images
 SUPABASE_TABLE=food_analyses
 GOOGLE_API_KEY=...
 LOGFIRE_WRITE_TOKEN=optional-logfire-token
+TELEGRAM_BOT_TOKEN=optional-telegram-token
 # Optional overrides
 ALLOWED_ORIGINS=["http://localhost:3000"]
 MAX_IMAGE_SIZE_MB=10
@@ -114,8 +116,9 @@ API: `http://localhost:8000`
 - **GET** `/redoc`
 
 #### Analysis
-- **POST** `/analyze` � multipart upload
-- **POST** `/analyze-base64` � JSON with base64 image
+- **POST** `/analyze` — multipart upload
+- **POST** `/analyze-base64` — JSON with base64 image
+- **POST** `/analyze-telegram` — supply `file_id` from Telegram
 
 #### History
 - **GET** `/analysis/{analysis_id}`
@@ -145,6 +148,11 @@ resp = requests.post(
 print(resp.json())
 ```
 
+Telegram (file_id):
+```bash
+curl -X POST "http://localhost:8000/analyze-telegram?file_id=<telegram_file_id>"
+```
+
 History:
 ```bash
 curl "http://localhost:8000/history?limit=5"
@@ -168,8 +176,8 @@ curl "http://localhost:8000/history?limit=5"
 
 ## How It Works (pipeline)
 
-1. Validate image (size/format) and normalize (RGBA?RGB, re-encode, data URI).
-2. Send to Gemini via Pydantic-AI for structured `NutritionAnalysis`.
+1. Validate image (size/format) and normalize (RGBA→RGB, re-encode, data URI).
+2. Send to Gemini for structured `NutritionAnalysis`.
 3. Upload processed image to Supabase Storage (public URL).
 4. Persist results + image URL in Supabase Postgres.
 5. Return `FoodAnalysisResponse` (analysis_id, nutrition, image_url, timestamp).
@@ -178,7 +186,7 @@ curl "http://localhost:8000/history?limit=5"
 
 - `backend/config.py`: Typed Settings loader (env validation), CORS origins, max image size.
 - `backend/services/image_utils.py`: Shared image validation/normalization + data URI prep.
-- `backend/services/gemini_analyzer.py`: Gemini + Pydantic-AI structured nutrition output.
+- `backend/services/gemini_analyzer.py`: Gemini integration for structured nutrition output.
 - `backend/services/supabase_service.py`: Supabase DB/Storage with async-safe thread wrapping.
 
 ## Configuration
@@ -193,6 +201,7 @@ curl "http://localhost:8000/history?limit=5"
 | `SUPABASE_TABLE` | Database table name | Yes |
 | `GOOGLE_API_KEY` | Google AI API key for Gemini | Yes |
 | `LOGFIRE_WRITE_TOKEN` | Logfire token (optional) | No |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token (for `/analyze-telegram`) | No |
 | `ALLOWED_ORIGINS` | CORS allowlist (JSON array) | No |
 | `MAX_IMAGE_SIZE_MB` | Max upload size in MB | No |
 

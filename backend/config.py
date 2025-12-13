@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     supabase_table: str = Field(validation_alias="SUPABASE_TABLE")
 
     google_api_key: str = Field(validation_alias="GOOGLE_API_KEY")
+
+    telegram_bot_token: Optional[str] = Field(
+        default=None, validation_alias="TELEGRAM_BOT_TOKEN"
+    )
+    telegram_webhook_secret: Optional[str] = None
+    telegram_allowed_chat_ids: List[int] = Field(default_factory=list)
+
     logfire_write_token: Optional[str] = Field(
         default=None, validation_alias="LOGFIRE_WRITE_TOKEN"
     )

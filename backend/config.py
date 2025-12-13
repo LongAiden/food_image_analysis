@@ -18,6 +18,10 @@ class Settings(BaseSettings):
         default=None, validation_alias="TELEGRAM_BOT_TOKEN"
     )
     telegram_webhook_secret: Optional[str] = None
+    telegram_webhook_url: Optional[str] = Field(
+        default=None, validation_alias="TELEGRAM_WEBHOOK_URL"
+    )
+    telegram_allowed_chat_ids: List[int] = Field(default_factory=list)
 
     logfire_write_token: Optional[str] = Field(
         default=None, validation_alias="LOGFIRE_WRITE_TOKEN"

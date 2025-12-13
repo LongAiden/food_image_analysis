@@ -39,6 +39,18 @@ async def lifespan(app: FastAPI):
 
     await app.state.storage_service.ensure_bucket_exists()
 
+    # Optionally set Telegram webhook automatically if configured
+    if settings.telegram_bot_token and settings.telegram_webhook_url:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"https://api.telegram.org/bot{settings.telegram_bot_token}/setWebhook",
+                    data={"url": settings.telegram_webhook_url},
+                )
+                logfire.info("Telegram webhook set", response=resp.json())
+        except Exception as exc:
+            logfire.warning(f"Failed to set Telegram webhook: {exc}")
+
     yield
 
     logfire.info("Application shutting down...")

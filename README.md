@@ -202,6 +202,7 @@ curl "http://localhost:8000/history?limit=5"
 | `GOOGLE_API_KEY` | Google AI API key for Gemini | Yes |
 | `LOGFIRE_WRITE_TOKEN` | Logfire token (optional) | No |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token (for `/analyze-telegram`) | No |
+| `TELEGRAM_WEBHOOK_URL` | Public HTTPS URL to set webhook automatically (optional) | No |
 | `ALLOWED_ORIGINS` | CORS allowlist (JSON array) | No |
 | `MAX_IMAGE_SIZE_MB` | Max upload size in MB | No |
 

@@ -274,14 +274,15 @@ async def process_telegram_update(
 
         reply = (
             f"Analysis complete:\n"
-            f"Food: {nutrition_analysis.food_name}\n"
-            f"Calories: {nutrition_analysis.calories}\n"
-            f"Protein: {nutrition_analysis.protein} g\n"
-            f"Sugar: {nutrition_analysis.sugar} g\n"
-            f"Fat: {nutrition_analysis.fat} g\n"
-            f"Fiber: {nutrition_analysis.fiber} g\n"
-            f"Carbs: {nutrition_analysis.carbs} g\n"
-            f"\n"  # blank line
+            f"\n"
+            f"- Food: {nutrition_analysis.food_name}\n"
+            f"- Calories: {nutrition_analysis.calories}\n"
+            f"- Protein: {nutrition_analysis.protein} g\n"
+            f"- Sugar: {nutrition_analysis.sugar} g\n"
+            f"- Fat: {nutrition_analysis.fat} g\n"
+            f"- Fiber: {nutrition_analysis.fiber} g\n"
+            f"- Carbs: {nutrition_analysis.carbs} g\n"
+            f"\n"
             f"Health Score: {nutrition_analysis.health_score}/100"
         )
         await send_telegram_message(chat_id, reply, settings)

@@ -58,6 +58,7 @@ class DatabaseService(_BaseSupabaseService):
             "others": nutrition.others,
             "health_score": nutrition.health_score,
             "raw_result": nutrition.model_dump(),
+            "timestamp": datetime.utcnow().isoformat(),
         }
         if analysis_id:
             record["id"] = str(analysis_id)

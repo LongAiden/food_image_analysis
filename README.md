@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS food_analyses (
     health_score INT,
     others TEXT NOT NULL,
     raw_result JSONB,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_created_at ON food_analyses(created_at DESC);
@@ -112,7 +113,8 @@ ALTER TABLE food_analyses
     ADD COLUMN IF NOT EXISTS fat FLOAT,
     ADD COLUMN IF NOT EXISTS fiber FLOAT,
     ADD COLUMN IF NOT EXISTS health_score INT,
-    ADD COLUMN IF NOT EXISTS raw_result JSONB;
+    ADD COLUMN IF NOT EXISTS raw_result JSONB,
+    ADD COLUMN IF NOT EXISTS timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 ```
 
 ## Usage

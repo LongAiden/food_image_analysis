@@ -87,15 +87,32 @@ MAX_IMAGE_SIZE_MB=10
 CREATE TABLE IF NOT EXISTS food_analyses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     image_path TEXT NOT NULL,
+    food_name TEXT NOT NULL,
     calories FLOAT NOT NULL,
     sugar FLOAT NOT NULL,
     protein FLOAT NOT NULL,
+    carbs FLOAT NOT NULL,
+    fat FLOAT NOT NULL,
+    fiber FLOAT NOT NULL,
+    health_score INT,
     others TEXT NOT NULL,
+    raw_result JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_created_at ON food_analyses(created_at DESC);
 ALTER TABLE food_analyses ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all operations" ON food_analyses FOR ALL USING (true) WITH CHECK (true);
+```
+
+If you already have the table, add the new columns:
+```sql
+ALTER TABLE food_analyses
+    ADD COLUMN IF NOT EXISTS food_name TEXT,
+    ADD COLUMN IF NOT EXISTS carbs FLOAT,
+    ADD COLUMN IF NOT EXISTS fat FLOAT,
+    ADD COLUMN IF NOT EXISTS fiber FLOAT,
+    ADD COLUMN IF NOT EXISTS health_score INT,
+    ADD COLUMN IF NOT EXISTS raw_result JSONB;
 ```
 
 ## Usage

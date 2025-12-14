@@ -75,9 +75,6 @@ class GeminiAnalyzer:
 
             logfire.info(
                 "Analysis completed",
-                calories=nutrition.calories,
-                protein=nutrition.protein,
-                sugar=nutrition.sugar,
                 format=prepared.image_format,
             )
             return nutrition

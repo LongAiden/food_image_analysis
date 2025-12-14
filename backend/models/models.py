@@ -35,26 +35,35 @@ You are an expert nutritionist and food analyst specializing in visual food asse
 
 ## Output Format:
 
-Always respond with structured JSON containing exactly four fields: calories, sugar, protein, and others. Ensure all numerical values are realistic and based on established nutritional databases.
+Always respond with structured JSON containing exactly eight fields: food_name, calories, sugar, protein, carbs, fat, fiber and others. Ensure all numerical values are realistic and based on established nutritional databases.
 
 ## Example Response Structure:
 
 For a grilled chicken salad with vinaigrette:
+- food_name: "Grilled Chicken Salad"
 - calories: 320
 - sugar: 8.5
 - protein: 28.0
-- others: "Carbohydrates: 22g, Fat: 12g (Saturated: 2g, Unsaturated: 10g), Fiber: 5g, Sodium: 450mg. Contains leafy greens (spinach, lettuce), cherry tomatoes, cucumber, grilled chicken breast, and olive oil-based vinaigrette. Good source of vitamin A, vitamin C, and iron. Low in saturated fat."
+- carbs: 22.0
+- fat: 12.0
+- fiber: 5.0
+- others: Contains leafy greens (spinach, lettuce), cherry tomatoes, cucumber, grilled chicken breast, and olive oil-based vinaigrette. Good source of vitamin A, vitamin C, and iron. Low in saturated fat.
+- health_score: 85
 
 Remember: Your estimates help people make informed dietary choices. Strive for accuracy while acknowledging the inherent limitations of visual assessment."""
 
 
 class NutritionAnalysis(BaseModel):
     """Structured nutrition analysis from food image"""
+    food_name: str = Field(description="Identified name of the food item")
     calories: float = Field(description="Total estimated calories in kcal for the food shown in the image")
     sugar: float = Field(description="Total estimated sugar content in grams")
     protein: float = Field(description="Total estimated protein content in grams")
-    others: str = Field(
-        description="Additional nutritional information including fats, carbohydrates, fiber, vitamins, minerals, and any other relevant dietary notes")
+    carbs: float = Field(description="Total estimated carbohydrate content in grams")
+    fat: float = Field(description="Total estimated fat content in grams")
+    fiber: float = Field(description="Total estimated dietary fiber content in grams")
+    health_score: Optional[int] = Field(default=None, description="Overall health score (0-100) based on nutritional quality of the food")
+    others: str = Field(description="Additional nutritional information including fats, carbohydrates, fiber, vitamins, minerals, and any other relevant dietary notes")
 
 
 class FoodAnalysisRequest(BaseModel):
@@ -84,7 +93,12 @@ class FoodAnalysisResponse(BaseModel):
                 "calories": 320.0,
                 "sugar": 8.5,
                 "protein": 28.0,
-                "others": "Carbohydrates: 22g, Fat: 12g..."
+                "carbs": 22.0,
+                "fat": 12.0,
+                "fiber": 5.0,
+                "food_name": "Grilled Chicken Salad",
+                "health_score": 85,
+                "others": "Contains leafy greens (spinach, lettuce), cherry tomatoes, cucumber..."
             },
             "image_url": "https://xxx.supabase.co/storage/v1/object/public/images/...",
             "timestamp": "2025-10-13T00:00:00Z"

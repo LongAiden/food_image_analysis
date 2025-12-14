@@ -48,10 +48,16 @@ class DatabaseService(_BaseSupabaseService):
     ) -> dict:
         record = {
             "image_path": image_path,
+            "food_name": nutrition.food_name,
             "calories": nutrition.calories,
             "sugar": nutrition.sugar,
             "protein": nutrition.protein,
+            "carbs": nutrition.carbs,
+            "fat": nutrition.fat,
+            "fiber": nutrition.fiber,
             "others": nutrition.others,
+            "health_score": nutrition.health_score,
+            "raw_result": nutrition.model_dump(),
         }
         if analysis_id:
             record["id"] = str(analysis_id)
@@ -79,20 +85,6 @@ class DatabaseService(_BaseSupabaseService):
 
         return response.data[0] if response.data else None
 
-    async def get_recent_analyses(self, limit: int = 10, offset: int = 0) -> List[dict]:
-        try:
-            response = await self._run_with_retry(
-                lambda: self.client.table(self.table_name)
-                .select("*")
-                .order("created_at", desc=True)
-                .range(offset, offset + limit - 1)
-                .execute()
-            )
-            return response.data or []
-        except Exception as exc:
-            logfire.error(f"Error fetching recent analyses: {exc}")
-            return []
-
     async def delete_analysis(self, analysis_id: UUID) -> bool:
         try:
             await self._run_with_retry(
@@ -103,37 +95,6 @@ class DatabaseService(_BaseSupabaseService):
         except Exception as exc:
             logfire.error(f"Error deleting analysis {analysis_id}: {exc}")
             return False
-
-    async def get_statistics(self) -> dict:
-        try:
-            count_response = await self._run_with_retry(
-                lambda: self.client.table(self.table_name).select("id", count="exact").execute()
-            )
-            total_count = count_response.count if hasattr(count_response, "count") else 0
-
-            recent_data = await self.get_recent_analyses(limit=100)
-            avg_calories = (
-                sum(record["calories"] for record in recent_data) / len(recent_data) if recent_data else 0
-            )
-            avg_protein = (
-                sum(record["protein"] for record in recent_data) / len(recent_data) if recent_data else 0
-            )
-            avg_sugar = sum(record["sugar"] for record in recent_data) / len(recent_data) if recent_data else 0
-
-            return {
-                "total_analyses": total_count,
-                "avg_calories": round(avg_calories, 2),
-                "avg_protein": round(avg_protein, 2),
-                "avg_sugar": round(avg_sugar, 2),
-            }
-        except Exception as exc:
-            logfire.error(f"Error calculating statistics: {exc}")
-            return {
-                "total_analyses": 0,
-                "avg_calories": 0,
-                "avg_protein": 0,
-                "avg_sugar": 0,
-            }
 
 
 class StorageService(_BaseSupabaseService):
@@ -211,17 +172,6 @@ class StorageService(_BaseSupabaseService):
         except Exception as exc:
             logfire.error(f"Error deleting image {path}: {exc}")
             return False
-
-    def get_image_url(self, path: str) -> str:
-        return self.client.storage.from_(self.bucket_name).get_public_url(path)
-
-    def list_images(self, limit: int = 100, offset: int = 0) -> List:
-        try:
-            files = self.client.storage.from_(self.bucket_name).list()
-            return files[offset : offset + limit]
-        except Exception as exc:
-            logfire.error(f"Error listing images: {exc}")
-            return []
 
     @staticmethod
     def _get_extension(content_type: str, filename: Optional[str] = None) -> str:

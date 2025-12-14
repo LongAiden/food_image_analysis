@@ -151,29 +151,41 @@ async def fetch_telegram_file(file_id: str, settings: Settings) -> tuple[bytes, 
             status_code=400, detail="Telegram bot token not configured")
 
     base_url = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
-    async with httpx.AsyncClient(timeout=20) as client:
-        get_file_resp = await client.get(f"{base_url}/getFile", params={"file_id": file_id})
-        if get_file_resp.status_code != 200:
-            logfire.error(
-                f"Failed to fetch Telegram file metadata: {get_file_resp.text}")
-            raise HTTPException(
-                status_code=502, detail="Failed to fetch Telegram file metadata")
-        file_info = get_file_resp.json().get("result")
-        if not file_info or "file_path" not in file_info:
-            logfire.error(f"Invalid Telegram file_id: {get_file_resp.text}")
-            raise HTTPException(
-                status_code=400, detail="Invalid Telegram file_id")
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            logfire.info(f"Fetching Telegram file metadata for file_id={file_id}")
+            get_file_resp = await client.get(f"{base_url}/getFile", params={"file_id": file_id})
+            get_file_resp.raise_for_status()
 
-        file_path = file_info["file_path"]
-        download_url = f"https://api.telegram.org/file/bot{settings.telegram_bot_token}/{file_path}"
-        download_resp = await client.get(download_url)
-        if download_resp.status_code != 200:
-            logfire.error(f"Failed to download Telegram file : {download_resp.text}")
-            raise HTTPException(
-                status_code=502, detail="Failed to download Telegram file")
+            file_info = get_file_resp.json().get("result")
+            if not file_info or "file_path" not in file_info:
+                logfire.error(f"Invalid Telegram file_id response: {get_file_resp.text}")
+                raise HTTPException(
+                    status_code=400, detail="Invalid Telegram file_id")
 
-        filename = file_path.rsplit("/", 1)[-1]
-        return download_resp.content, filename
+            file_path = file_info["file_path"]
+            download_url = f"https://api.telegram.org/file/bot{settings.telegram_bot_token}/{file_path}"
+
+            logfire.info(f"Downloading Telegram file from path={file_path}")
+            download_resp = await client.get(download_url)
+            download_resp.raise_for_status()
+
+            filename = file_path.rsplit("/", 1)[-1]
+            logfire.info(f"Successfully downloaded Telegram file: {filename}, size={len(download_resp.content)} bytes")
+            return download_resp.content, filename
+
+    except httpx.HTTPStatusError as exc:
+        logfire.error(f"HTTP error downloading Telegram file: {exc.response.status_code} - {exc.response.text}")
+        raise HTTPException(
+            status_code=502, detail=f"Failed to download Telegram file: {exc.response.status_code}")
+    except httpx.RequestError as exc:
+        logfire.error(f"Network error downloading Telegram file: {exc}")
+        raise HTTPException(
+            status_code=502, detail="Network error downloading Telegram file")
+    except Exception as exc:
+        logfire.error(f"Unexpected error downloading Telegram file: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=502, detail="Failed to download Telegram file")
 
 
 async def send_telegram_message(chat_id: int, text: str, settings: Settings) -> None:
@@ -181,11 +193,15 @@ async def send_telegram_message(chat_id: int, text: str, settings: Settings) -> 
     if not settings.telegram_bot_token:
         return
     base_url = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
-    async with httpx.AsyncClient(timeout=15) as client:
-        await client.post(
-            f"{base_url}/sendMessage",
-            json={"chat_id": chat_id, "text": text},
-        )
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                f"{base_url}/sendMessage",
+                json={"chat_id": chat_id, "text": text},
+            )
+            response.raise_for_status()
+    except Exception as exc:
+        logfire.error(f"Failed to send Telegram message: {exc}")
 
 
 async def process_telegram_update(
@@ -199,8 +215,10 @@ async def process_telegram_update(
     Common Telegram handler used by both webhook and long-polling.
     Returns (handled, payload, status_code).
     """
+    logfire.info(f"Received Telegram update: {update.get('update_id', 'unknown')}")
     message = update.get("message") or update.get("edited_message")
     if not message:
+        logfire.debug("Update has no message payload, skipping")
         return False, {"detail": "no_message"}, 200
 
     chat = message.get("chat") or {}
@@ -214,8 +232,15 @@ async def process_telegram_update(
         await send_telegram_message(chat_id, "Please send a photo.", settings)
         return True, {"detail": "no_photo"}, 200
 
-    file_id = photos[-1]["file_id"]  # largest resolution photo
     try:
+        file_id = photos[-1]["file_id"]  # largest resolution photo
+    except (IndexError, KeyError) as exc:
+        logfire.error(f"Failed to extract file_id from photos: {exc}")
+        await send_telegram_message(chat_id, "Could not read the photo. Please try again.", settings)
+        return True, {"detail": "invalid_photo_structure"}, 400
+
+    try:
+        logfire.info(f"Processing Telegram photo from chat_id={chat_id}, file_id={file_id}")
         await send_telegram_message(chat_id, "Analyzing image...", settings)
 
         image_data, filename = await fetch_telegram_file(file_id=file_id, settings=settings)
@@ -237,6 +262,8 @@ async def process_telegram_update(
             image_path=storage_result["url"], nutrition=nutrition_analysis
         )
 
+        logfire.info(f"Analysis successful for chat_id={chat_id}, analysis_id={db_record.get('id')}")
+
         reply = (
             f"Analysis complete:\n"
             f"Calories: {nutrition_analysis.calories}\n"
@@ -251,13 +278,15 @@ async def process_telegram_update(
         }, 200
 
     except ValueError as exc:
+        logfire.warning(f"Validation error in Telegram processing: {exc}")
         await send_telegram_message(chat_id, f"Validation error: {exc}", settings)
         return True, {"detail": str(exc)}, 400
     except HTTPException as exc:
+        logfire.warning(f"HTTP error in Telegram processing: {exc.detail}")
         await send_telegram_message(chat_id, f"Error: {exc.detail}", settings)
         return True, {"detail": exc.detail}, exc.status_code
     except Exception as exc:
-        logfire.error(f"Telegram processing error: {exc}")
+        logfire.error(f"Telegram processing error: {exc}", exc_info=True)
         await send_telegram_message(chat_id, "Analysis failed. Please try again later.", settings)
         return True, {"detail": "Analysis failed"}, 500
 

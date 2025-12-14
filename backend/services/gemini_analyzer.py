@@ -54,7 +54,7 @@ class GeminiAnalyzer:
         try:
             prompt = (
                 SYSTEM_PROMPT
-                + "\nReturn ONLY valid JSON with fields: calories, sugar, protein, others."
+                + "\nReturn ONLY valid JSON with fields: food_name, calories, sugar, protein, carbs, fat, fiber, others, health_score."
             )
 
             response = await self.model.generate_content_async(

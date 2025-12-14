@@ -87,9 +87,17 @@ async def lifespan(app: FastAPI):
                         f"https://api.telegram.org/bot{settings.telegram_bot_token}/setWebhook",
                         data={"url": webhook_url},
                     )
-                    logfire.info("Telegram webhook set", response=resp.json())
+                    payload = resp.json()
+                    if payload.get("ok"):
+                        logfire.info("Telegram webhook set", response=payload)
+                    else:
+                        logfire.warning("Telegram webhook registration failed", response=payload)
+                        settings.telegram_webhook_url = None
+                        telegram_polling_task = asyncio.create_task(telegram_long_poll(app))
             except Exception as exc:
                 logfire.warning(f"Failed to set Telegram webhook: {exc}")
+                # Clear webhook so polling is allowed when registration fails
+                settings.telegram_webhook_url = None
                 telegram_polling_task = asyncio.create_task(telegram_long_poll(app))
         else:
             # Fallback to polling when no webhook URL is provided

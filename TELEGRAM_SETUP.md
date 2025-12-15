@@ -9,11 +9,12 @@ This application integrates with Telegram to allow users to analyze food images 
 ## 📋 Table of Contents
 
 1. [How It Works](#how-it-works)
-2. [Webhook vs Long Polling](#webhook-vs-long-polling)
-3. [Configuration Options](#configuration-options)
-4. [Local Development Setup](#local-development-setup)
-5. [Production Deployment](#production-deployment)
-6. [Troubleshooting](#troubleshooting)
+2. [Recent Improvements](#recent-improvements)
+3. [Webhook vs Long Polling](#webhook-vs-long-polling)
+4. [Configuration Options](#configuration-options)
+5. [Local Development Setup](#local-development-setup)
+6. [Production Deployment](#production-deployment)
+7. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -50,25 +51,93 @@ Send nutrition results back to user
 **Location:** `main.py`
 
 1. **Entry Points:**
-   - **Webhook:** `/telegram/webhook` endpoint (line 482)
-   - **Long Polling:** `telegram_long_poll()` function (line 282)
+   - **Webhook:** `/telegram/webhook` endpoint (line 526)
+   - **Long Polling:** `telegram_long_poll()` function (line 309)
 
-2. **Update Processing:** `process_telegram_update()` (line 195)
+2. **Update Processing:** `process_telegram_update()` (line 215)
+   - Logs incoming update for debugging
    - Validates message has photo
-   - Extracts chat_id and file_id
+   - Extracts chat_id and file_id with error handling
    - Downloads file from Telegram
    - Processes and analyzes image
    - Stores results
-   - Sends response
+   - Sends response with comprehensive error handling
 
-3. **File Download:** `fetch_telegram_file()` (line 147)
+3. **File Download:** `fetch_telegram_file()` (line 155)
    - Gets file metadata from Telegram API
-   - Downloads actual file content
+   - Downloads actual file content with timeout
+   - Includes HTTP error handling and logging
    - Returns bytes and filename
 
-4. **Message Sending:** `send_telegram_message()` (line 191)
+4. **Message Sending:** `send_telegram_message()` (line 199)
    - Sends text responses back to user
-   - Includes error handling
+   - Includes comprehensive error handling
+   - Logs failures without crashing
+
+---
+
+## 🔧 Recent Improvements
+
+### Enhanced Error Handling & Reliability
+
+The Telegram bot integration has been significantly improved with robust error handling and logging:
+
+#### 1. **Message Sending Resilience** (line 199)
+   ```python
+   async def send_telegram_message(...)
+   ```
+   - ✅ Wrapped in try-except to prevent crashes
+   - ✅ Logs errors for debugging
+   - ✅ Validates response status with `raise_for_status()`
+   - ✅ Never fails silently - always logs what happened
+
+#### 2. **Photo Extraction Safety** (line 221)
+   ```python
+   try:
+       file_id = photos[-1]["file_id"]
+   except (IndexError, KeyError):
+       # Send user-friendly error message
+   ```
+   - ✅ Catches invalid photo structures
+   - ✅ Sends helpful error message to user
+   - ✅ Prevents app crash on malformed updates
+
+#### 3. **File Download Robustness** (line 155)
+   ```python
+   async def fetch_telegram_file(...)
+   ```
+   - ✅ Specific exception handling for HTTP errors
+   - ✅ Separate handling for network errors
+   - ✅ Comprehensive logging at each step
+   - ✅ Detailed error messages to help debug issues
+
+#### 4. **Comprehensive Logging**
+   - ✅ Logs when update is received
+   - ✅ Logs photo processing steps
+   - ✅ Logs file download progress
+   - ✅ Logs successful analyses with IDs
+   - ✅ Logs all errors with stack traces
+
+#### 5. **Better Error Messages**
+   - ❌ Before: Bot went silent on errors
+   - ✅ Now: User receives clear error messages:
+     - "Could not read the photo. Please try again."
+     - "Analysis failed. Please try again later."
+     - "Validation error: [specific issue]"
+
+### Why These Improvements Matter
+
+**Before:**
+- Bot would silently fail with no response
+- Hard to debug issues (no logs)
+- Users left confused when nothing happened
+- Single points of failure could crash the app
+
+**After:**
+- Bot always responds (success or error message)
+- Full logging in Logfire for debugging
+- Clear user feedback on what went wrong
+- Resilient to network issues, malformed data, and API failures
 
 ---
 
@@ -92,7 +161,7 @@ Your app supports **two modes** for receiving Telegram updates:
 - Production deployments
 - When your server is publicly accessible
 
-**Code:** Lines 83-92 in `main.py` (automatically sets webhook on startup)
+**Code:** Lines 83-96 in `main.py` (automatically sets webhook on startup)
 
 ---
 
@@ -113,7 +182,7 @@ Your app supports **two modes** for receiving Telegram updates:
 - Testing on your laptop
 - No public server available
 
-**Code:** Lines 282-316 in `main.py` (`telegram_long_poll` function)
+**Code:** Lines 309-343 in `main.py` (`telegram_long_poll` function)
 
 ---
 
@@ -168,7 +237,7 @@ NGROK_PORT=8000
 - ❌ Requires ngrok installed
 - ❌ URL changes each restart (unless you have ngrok pro)
 
-**Code:** Lines 51-81 in `main.py`
+**Code:** Lines 51-81 in `main.py` (ngrok auto-setup in lifespan)
 
 ---
 
@@ -303,6 +372,32 @@ Starting Telegram long polling (no webhook URL configured)
 
 ## 🐛 Troubleshooting
 
+### ✅ Common Issues Fixed
+
+The following issues have been resolved in the latest version:
+
+1. **Bot not responding to photos** ✅ FIXED
+   - Issue: Webhook was set to placeholder URL
+   - Fix: Clear webhook and use long polling for local dev
+   - Command: `curl -X POST "https://api.telegram.org/bot<TOKEN>/deleteWebhook"`
+
+2. **Silent failures with no error messages** ✅ FIXED
+   - Issue: Errors weren't caught, app crashed silently
+   - Fix: Comprehensive error handling added throughout
+   - Result: Bot now always responds, even on errors
+
+3. **Auth errors when creating bucket** ✅ FIXED
+   - Issue: Using anon key instead of service_role key
+   - Fix: Updated to use service_role key from Supabase
+   - Check: JWT should contain `"role":"service_role"`
+
+4. **No logging/debugging info** ✅ FIXED
+   - Issue: Couldn't see what was happening
+   - Fix: Added comprehensive Logfire logging
+   - View: All events logged at https://logfire.pydantic.dev
+
+---
+
 ### Bot doesn't respond to messages
 
 **Check 1: Is the app running?**
@@ -393,11 +488,23 @@ Search for: `"Analysis error"` or `"Telegram processing error"`
 ### View Logs in Logfire
 
 1. Go to https://logfire.pydantic.dev
-2. Search for:
-   - `"Received Telegram update"` - Shows incoming messages
-   - `"Processing Telegram photo"` - Shows photo processing
-   - `"Analysis successful"` - Shows completed analyses
-   - `"Telegram processing error"` - Shows errors
+2. Search for key events:
+
+   **Successful Flow:**
+   - `"Received Telegram update"` - Shows incoming messages with update ID
+   - `"Processing Telegram photo"` - Shows photo being processed (chat_id, file_id)
+   - `"Fetching Telegram file metadata"` - File download starting
+   - `"Downloading Telegram file"` - File download in progress
+   - `"Successfully downloaded Telegram file"` - File download complete with size
+   - `"Analysis successful"` - Shows completed analyses with analysis_id
+
+   **Errors:**
+   - `"Failed to send Telegram message"` - Message sending failed
+   - `"Failed to extract file_id"` - Photo structure invalid
+   - `"HTTP error downloading Telegram file"` - Download failed
+   - `"Network error downloading Telegram file"` - Connection issue
+   - `"Validation error in Telegram processing"` - Invalid data
+   - `"Telegram processing error"` - General processing errors
 
 ### Check Telegram Webhook Status
 

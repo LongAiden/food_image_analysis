@@ -461,68 +461,6 @@ async def analyze_food_image_base64(
         raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}")
 
 
-@app.post("/analyze-telegram", response_model=FoodAnalysisResponse, tags=["Analysis"])
-async def analyze_food_image_telegram(
-    file_id: str,
-    chat_id: int | None = None,
-    analyzer: GeminiAnalyzer = Depends(get_analyzer),
-    storage: StorageService = Depends(get_storage),
-    database: DatabaseService = Depends(get_database),
-    settings: Settings = Depends(get_settings),
-):
-    """Analyze an image referenced by a Telegram file_id."""
-    nutrition_analysis = None
-    try:
-        if chat_id:
-            await send_telegram_message(chat_id, "Analyzing image...", settings)
-
-        image_data, filename = await fetch_telegram_file(file_id=file_id, settings=settings)
-        prepared = prepare_image(
-            image_data, max_size_mb=settings.max_image_size_mb)
-
-        nutrition_analysis = await analyzer.analyze_image(
-            prepared=prepared, filename=filename
-        )
-
-        storage_result = await storage.upload_image(
-            image_data=prepared.image_bytes,
-            filename=filename,
-            content_type=prepared.content_type,
-        )
-
-        db_record = await database.save_analysis(
-            image_path=storage_result["url"], nutrition=nutrition_analysis
-        )
-
-        return FoodAnalysisResponse(
-            analysis_id=UUID(db_record["id"]),
-            nutrition=nutrition_analysis,
-            image_url=storage_result["url"],
-            timestamp=db_record["created_at"],
-        )
-
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logfire.error(f"Analysis error (telegram): {exc}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}")
-    finally:
-        if chat_id:
-            try:
-                if not nutrition_analysis:
-                    return
-                reply = (
-                    f"Analysis complete:\n"
-                    f"Calories: {nutrition_analysis.calories}\n"
-                    f"Protein: {nutrition_analysis.protein} g\n"
-                    f"Sugar: {nutrition_analysis.sugar} g"
-                )
-                await send_telegram_message(chat_id, reply, settings)
-            except Exception:
-                # best-effort; avoid masking original exceptions
-                pass
-
-
 @app.post("/telegram/webhook", include_in_schema=False)
 async def telegram_webhook(
     update: dict,

@@ -105,24 +105,16 @@ ALTER TABLE food_analyses ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all operations" ON food_analyses FOR ALL USING (true) WITH CHECK (true);
 ```
 
-If you already have the table, add the new columns:
-```sql
-ALTER TABLE food_analyses
-    ADD COLUMN IF NOT EXISTS food_name TEXT,
-    ADD COLUMN IF NOT EXISTS carbs FLOAT,
-    ADD COLUMN IF NOT EXISTS fat FLOAT,
-    ADD COLUMN IF NOT EXISTS fiber FLOAT,
-    ADD COLUMN IF NOT EXISTS health_score INT,
-    ADD COLUMN IF NOT EXISTS raw_result JSONB,
-    ADD COLUMN IF NOT EXISTS timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW();
-```
-
 ## Usage
 
 ### Running the Server
 
 ```bash
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+```bash
+python main.py
 ```
 
 API: `http://localhost:8000`
@@ -188,10 +180,16 @@ curl "http://localhost:8000/history?limit=5"
 {
   "analysis_id": "123e4567-e89b-12d3-a456-426614174000",
   "nutrition": {
+    "food_name":"pizza",
     "calories": 320.0,
     "sugar": 8.5,
     "protein": 28.0,
-    "others": "Carbohydrates: 22g, Fat: 12g (Saturated: 2g, Unsaturated: 10g), Fiber: 5g, Sodium: 450mg..."
+    "carbs": 12.0,
+    "fat": 10.0,
+    "fiber": 12.0,
+    "others": "This food contains...",
+    "health_score":80,
+    ...
   },
   "image_url": "https://xxx.supabase.co/storage/v1/object/public/food-images/...",
   "timestamp": "2025-10-15T00:00:00Z"
@@ -199,12 +197,17 @@ curl "http://localhost:8000/history?limit=5"
 ```
 
 ## How It Works (pipeline)
-
-1. Validate image (size/format) and normalize (RGBA→RGB, re-encode, data URI).
-2. Send to Gemini for structured `NutritionAnalysis`.
-3. Upload processed image to Supabase Storage (public URL).
-4. Persist results + image URL in Supabase Postgres.
-5. Return `FoodAnalysisResponse` (analysis_id, nutrition, image_url, timestamp).
+1. Upload a single food image on the Telegram chatbot
+2. Validate image (size/format) and normalize (RGBA→RGB, re-encode, data URI).
+3. Send to Gemini for structured `NutritionAnalysis`.
+4. Upload processed image to Supabase Storage (public URL).
+![Supabase Bucket](images/supabse_buckets.png)
+5. Persist results + image URL in Supabase Postgres.
+![Supabase](images/supabse_db.png)
+6. Return `FoodAnalysisResponse` (analysis_id, nutrition, image_url, timestamp).
+![Telegram](images/telegram_interaction.png)
+7. Logfire check:
+![Logfire](images/logfire_2.png)
 
 ## Key Components
 
@@ -257,15 +260,3 @@ pytest
 - `400` invalid image/validation
 - `404` not found
 - `500` analysis/database/storage errors
-
-## License
-
-[Add your license information here]
-
-## Contributing
-
-[Add contribution guidelines here]
-
-## Support
-
-For issues and questions, please open an issue on the repository.

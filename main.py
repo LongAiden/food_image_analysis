@@ -304,7 +304,7 @@ async def handle_logout_command(
     if not session.get("authenticated"):
         await send_telegram_message(
             chat_id,
-            "You are not logged in.",
+            "Logout successfully. Please type /login and input password to logged in.",
             settings
         )
         return
@@ -335,14 +335,22 @@ async def handle_password_input(
     # Delete password message immediately for security
     await delete_message(chat_id, message_id, settings)
 
+    # Add welcome texts for tele bot
     if settings.telegram_bot_password and password == settings.telegram_bot_password:
         session["authenticated"] = True
         session["awaiting_password"] = False
         await send_telegram_message(
             chat_id,
-            "Login successful! You can now send food images for analysis.",
+            "Login successful! Welcome to Food Analysis Bot!\n\n"
+            "You can now send food images for analysis.\n\n"
+            "Just send me a photo of your food and I'll analyze:\n"
+            "• Nutritional information\n"
+            "• Calories, protein, carbs, etc.\n"
+            "• Health score\n\n"
+            "Need help? Use /start to see all commands.",
             settings
         )
+
     else:
         session["awaiting_password"] = False
         await send_telegram_message(
@@ -523,7 +531,7 @@ async def process_telegram_update(
         )
 
         db_record = await database.save_analysis(
-            image_path=storage_result["url"], nutrition=result
+            image_path=storage_result["url"], nutrition=result.nutrition
         )
 
 

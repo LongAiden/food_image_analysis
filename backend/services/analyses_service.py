@@ -17,6 +17,7 @@ class AnalysisResult(BaseModel):
     Unlike domain entities, it has no business logic.
     """
     analysis_id: UUID = Field(description="Unique analysis ID")
+    food_name: str = Field(description="Food Name")
     nutrition: NutritionAnalysis = Field(description="Nutrition analysis results")
     image_url: str = Field(description="URL to stored image")
     timestamp: datetime = Field(description="Analysis timestamp")
@@ -122,13 +123,13 @@ class AnalysisService:
         logfire.info(
             "Analysis completed successfully",
             analysis_id=db_record["id"],
-            food_name=nutrition_analysis.food_name,
-            calories=nutrition_analysis.calories
+            food_name=nutrition_analysis.food_name
         )
 
         # Step 5: Return structured result
         return AnalysisResult(
             analysis_id=UUID(db_record["id"]),
+            food_name=nutrition_analysis.food_name,
             nutrition=nutrition_analysis,
             image_url=storage_result["url"],
             timestamp=db_record["created_at"]

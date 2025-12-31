@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     telegram_bot_token: Optional[str] = Field(
         default=None, validation_alias="TELEGRAM_BOT_TOKEN"
     )
+    telegram_bot_password: Optional[str] = Field(
+        default=None, validation_alias="TELEGRAM_BOT_PASSWORD"
+    )
     telegram_webhook_secret: Optional[str] = None
     telegram_webhook_url: Optional[str] = Field(
         default=None, validation_alias="TELEGRAM_WEBHOOK_URL"

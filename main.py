@@ -6,6 +6,7 @@ import logfire
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
+from backend.services.analyses_service import AnalysisService, AnalysisResult
 import httpx
 
 from backend.config import Settings
@@ -40,6 +41,16 @@ async def lifespan(app: FastAPI):
     app.state.database_service = DatabaseService(
         url=settings.supabase_url, key=settings.supabase_service_key, table_name=settings.supabase_table
     )
+
+    app.state.analysis_service = AnalysisService(
+        analyzer=app.state.gemini_analyzer,
+        storage=app.state.storage_service,
+        database=app.state.database_service,
+        max_image_size_mb=settings.max_image_size_mb
+    )
+
+    # Initialize Telegram session storage
+    app.state.telegram_sessions = {}  # dict[int, dict]
 
     await app.state.storage_service.ensure_bucket_exists()
 
@@ -136,6 +147,11 @@ app.add_middleware(
 )
 
 
+def get_analysis_service(request: Request) -> AnalysisService:
+    """Dependency injection for AnalysisService."""
+    return request.app.state.analysis_service
+
+
 def get_settings(request: Request) -> Settings:
     return request.app.state.settings
 
@@ -212,15 +228,177 @@ async def send_telegram_message(chat_id: int, text: str, settings: Settings) -> 
         logfire.error(f"Failed to send Telegram message: {exc}")
 
 
+def get_session(chat_id: int, sessions: dict) -> dict:
+    """Get or create session for chat_id."""
+    if chat_id not in sessions:
+        sessions[chat_id] = {
+            "authenticated": False,
+            "awaiting_password": False,
+        }
+    return sessions[chat_id]
+
+
+def is_authenticated(chat_id: int, sessions: dict) -> bool:
+    """Check if user is authenticated."""
+    session = get_session(chat_id, sessions)
+    return session.get("authenticated", False)
+
+
+async def delete_message(chat_id: int, message_id: int, settings: Settings) -> None:
+    """Delete a specific message (for password cleanup)."""
+    if not settings.telegram_bot_token:
+        return
+    base_url = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"{base_url}/deleteMessage",
+                json={"chat_id": chat_id, "message_id": message_id}
+            )
+    except Exception as exc:
+        logfire.warning(f"Failed to delete message: {exc}")
+
+
+async def handle_start_command(chat_id: int, settings: Settings) -> None:
+    """Handle /start command."""
+    welcome_message = (
+        "Welcome to the Food Analysis Bot!\n\n"
+        "Please log in using /login to start analyzing your food images.\n\n"
+        "Commands:\n"
+        "/start - Show this welcome message\n"
+        "/login - Log in to use the bot\n"
+        "/logout - Log out\n"
+        "/summary - View your food analysis statistics"
+    )
+    await send_telegram_message(chat_id, welcome_message, settings)
+
+
+async def handle_login_command(
+    chat_id: int,
+    session: dict,
+    settings: Settings
+) -> None:
+    """Handle /login command."""
+    if session.get("authenticated"):
+        await send_telegram_message(
+            chat_id,
+            "You are already logged in. Use /logout to log out first.",
+            settings
+        )
+        return
+
+    session["awaiting_password"] = True
+    await send_telegram_message(
+        chat_id,
+        "Please send your password:",
+        settings
+    )
+
+
+async def handle_logout_command(
+    chat_id: int,
+    session: dict,
+    settings: Settings
+) -> None:
+    """Handle /logout command."""
+    if not session.get("authenticated"):
+        await send_telegram_message(
+            chat_id,
+            "You are not logged in.",
+            settings
+        )
+        return
+
+    session["authenticated"] = False
+    session["awaiting_password"] = False
+    await send_telegram_message(
+        chat_id,
+        "You have been logged out successfully.",
+        settings
+    )
+
+
+async def handle_password_input(
+    chat_id: int,
+    message_id: int,
+    password: str,
+    session: dict,
+    settings: Settings
+) -> bool:
+    """
+    Validate password and authenticate user.
+    Returns True if password was handled, False otherwise.
+    """
+    if not session.get("awaiting_password"):
+        return False
+
+    # Delete password message immediately for security
+    await delete_message(chat_id, message_id, settings)
+
+    if settings.telegram_bot_password and password == settings.telegram_bot_password:
+        session["authenticated"] = True
+        session["awaiting_password"] = False
+        await send_telegram_message(
+            chat_id,
+            "Login successful! You can now send food images for analysis.",
+            settings
+        )
+    else:
+        session["awaiting_password"] = False
+        await send_telegram_message(
+            chat_id,
+            "Invalid password. Please try /login again.",
+            settings
+        )
+
+    return True
+
+
+async def handle_summary_command(
+    chat_id: int,
+    database: DatabaseService,
+    settings: Settings,
+    days: int = 7
+) -> None:
+    """Handle /summary command - show user's food analysis statistics."""
+    try:
+        # Get statistics from database
+        stats = await database.get_statistic(days)
+
+        # Format the summary message
+        summary_message = f"Food Analysis Summary (Last {days} days)\n\n"
+
+        if isinstance(stats, dict):
+            # Format each statistic
+            for key, value in stats.items():
+                # Format key to be more readable
+                readable_key = key.replace("_", " ").title()
+                summary_message += f"• {readable_key}: {value}\n"
+        else:
+            summary_message += str(stats)
+
+        await send_telegram_message(chat_id, summary_message, settings)
+
+    except Exception as exc:
+        logfire.error(f"Error getting statistics: {exc}")
+        await send_telegram_message(
+            chat_id,
+            "Sorry, I couldn't retrieve your statistics. Please try again later.",
+            settings
+        )
+
+
 async def process_telegram_update(
     update: dict,
-    analyzer: GeminiAnalyzer,
+    analysis_service: AnalysisService,
     storage: StorageService,
     database: DatabaseService,
     settings: Settings,
+    sessions: dict,
 ) -> tuple[bool, dict | None, int]:
     """
     Common Telegram handler used by both webhook and long-polling.
+    Now includes authentication and command routing.
     Returns (handled, payload, status_code).
     """
     logfire.info(f"Received Telegram update: {update.get('update_id', 'unknown')}")
@@ -234,11 +412,86 @@ async def process_telegram_update(
     if chat_id is None:
         return False, {"detail": "missing_chat"}, 200
 
+    message_id = message.get("message_id")
+
+    # Get or create session
+    session = get_session(chat_id, sessions)
+
+    # Extract text content (could be caption or text)
+    text = message.get("text") or ""
+
+    # --- COMMAND ROUTING ---
+    if text.startswith("/"):
+        command = text.split()[0].lower()  # Extract command part
+
+        if command == "/start":
+            await handle_start_command(chat_id, settings)
+            return True, {"detail": "start_command"}, 200
+
+        elif command == "/login":
+            await handle_login_command(chat_id, session, settings)
+            return True, {"detail": "login_prompt"}, 200
+
+        elif command == "/logout":
+            await handle_logout_command(chat_id, session, settings)
+            return True, {"detail": "logout"}, 200
+
+        elif command == "/summary":
+            # Check authentication before showing summary
+            if not is_authenticated(chat_id, sessions):
+                await send_telegram_message(
+                    chat_id,
+                    "Please log in first using /login to view your summary.",
+                    settings
+                )
+                return True, {"detail": "unauthenticated"}, 403
+
+            await handle_summary_command(chat_id, database, settings)
+            return True, {"detail": "summary_command"}, 200
+
+        else:
+            await send_telegram_message(
+                chat_id,
+                f"Unknown command: {command}. Use /start to see available commands.",
+                settings
+            )
+            return True, {"detail": "unknown_command"}, 200
+
+    # --- PASSWORD HANDLING ---
+    # If user is awaiting password, treat any text as password attempt
+    if session.get("awaiting_password") and text:
+        await handle_password_input(
+            chat_id, message_id, text, session, settings
+        )
+        return True, {"detail": "password_attempt"}, 200
+
+    # --- PHOTO PROCESSING ---
     caption = message.get("caption") or message.get("text") or ""
     photos = message.get("photo") or []
     if not photos:
-        await send_telegram_message(chat_id, "Please send a photo.", settings)
+        # Non-command text messages
+        if not is_authenticated(chat_id, sessions):
+            await send_telegram_message(
+                chat_id,
+                "Please log in first using /login",
+                settings
+            )
+        else:
+            await send_telegram_message(
+                chat_id,
+                "Please send a photo to analyze.",
+                settings
+            )
         return True, {"detail": "no_photo"}, 200
+
+    # Check authentication before processing photos
+    if not is_authenticated(chat_id, sessions):
+        await send_telegram_message(
+            chat_id,
+            "Please log in first using /login before sending images.",
+            settings
+        )
+        return True, {"detail": "unauthenticated"}, 403
 
     try:
         file_id = photos[-1]["file_id"]  # largest resolution photo
@@ -253,12 +506,15 @@ async def process_telegram_update(
 
         image_data, filename = await fetch_telegram_file(file_id=file_id, settings=settings)
         prepared = prepare_image(image_data, max_size_mb=settings.max_image_size_mb)
-
         display_name = caption.strip()[:64] or filename
 
-        nutrition_analysis = await analyzer.analyze_image(
-            prepared=prepared, filename=display_name
+        # Use shared analysis service - no duplication!
+        result = await analysis_service.analyze_and_store(
+            image_data=image_data,
+            filename=display_name
         )
+
+        logfire.info(f"Analysis successful for chat_id={chat_id}, analysis_id={result.analysis_id}")
 
         storage_result = await storage.upload_image(
             image_data=prepared.image_bytes,
@@ -267,29 +523,28 @@ async def process_telegram_update(
         )
 
         db_record = await database.save_analysis(
-            image_path=storage_result["url"], nutrition=nutrition_analysis
+            image_path=storage_result["url"], nutrition=result
         )
 
-        logfire.info(f"Analysis successful for chat_id={chat_id}, analysis_id={db_record.get('id')}")
 
         reply = (
             f"Analysis complete:\n"
             f"\n"
-            f"- Food: {nutrition_analysis.food_name}\n"
-            f"- Calories: {nutrition_analysis.calories}\n"
-            f"- Protein: {nutrition_analysis.protein} g\n"
-            f"- Sugar: {nutrition_analysis.sugar} g\n"
-            f"- Fat: {nutrition_analysis.fat} g\n"
-            f"- Fiber: {nutrition_analysis.fiber} g\n"
-            f"- Carbs: {nutrition_analysis.carbs} g\n"
+            f"- Food: {result.nutrition.food_name}\n"
+            f"- Calories: {result.nutrition.calories}\n"
+            f"- Protein: {result.nutrition.protein} g\n"
+            f"- Sugar: {result.nutrition.sugar} g\n"
+            f"- Fat: {result.nutrition.fat} g\n"
+            f"- Fiber: {result.nutrition.fiber} g\n"
+            f"- Carbs: {result.nutrition.carbs} g\n"
             f"\n"
-            f"Health Score: {nutrition_analysis.health_score}/100"
+            f"Health Score: {result.nutrition.health_score}/100"
         )
         await send_telegram_message(chat_id, reply, settings)
 
         return True, {
-            "analysis_id": db_record.get("id"),
-            "image_url": storage_result["url"],
+            "analysis_id": str(result.analysis_id),
+            "image_url": result.image_url,
         }, 200
 
     except ValueError as exc:
@@ -346,11 +601,13 @@ async def telegram_long_poll(app: FastAPI):
                     offset = update["update_id"] + 1
                     await process_telegram_update(
                         update=update,
-                        analyzer=app.state.gemini_analyzer,
+                        analysis_service=app.state.analysis_service,
                         storage=app.state.storage_service,
                         database=app.state.database_service,
                         settings=settings,
+                        sessions=app.state.telegram_sessions,
                     )
+
 
             except asyncio.CancelledError:
                 logfire.info("Telegram long polling cancelled")
@@ -374,41 +631,32 @@ async def root():
 
 @app.post("/analyze", response_model=FoodAnalysisResponse, tags=["Analysis"])
 async def analyze_food_image(
-    file: UploadFile = File(...,
-                            description="Food image file (JPEG, PNG, WEBP)"),
-    analyzer: GeminiAnalyzer = Depends(get_analyzer),
-    storage: StorageService = Depends(get_storage),
-    database: DatabaseService = Depends(get_database),
-    settings: Settings = Depends(get_settings),
+    file: UploadFile = File(..., description="Food image file (JPEG, PNG, WEBP)"),
+    analysis_service: AnalysisService = Depends(get_analysis_service),
 ):
-    """Analyze a food image and return nutritional information."""
+    """
+    Analyze a food image and return nutritional information.
+    
+    This endpoint now delegates to AnalysisService (Service Layer pattern).
+    The handler is thin - it only handles HTTP concerns.
+    """
     try:
+        # Read uploaded file
         image_data = await file.read()
-        prepared = prepare_image(
-            image_data, max_size_mb=settings.max_image_size_mb)
-
-        nutrition_analysis = await analyzer.analyze_image(
-            prepared=prepared, filename=file.filename or "upload.jpg"
+        
+        # Delegate to service layer
+        result = await analysis_service.analyze_and_store(
+            image_data=image_data,
+            filename=file.filename or "upload.jpg"
         )
 
-        storage_result = await storage.upload_image(
-            image_data=prepared.image_bytes,
-            filename=file.filename,
-            content_type=prepared.content_type,
+        # Convert to API response model
+        return FoodAnalysisResponse(
+            analysis_id=result.analysis_id,
+            nutrition=result.nutrition,
+            image_url=result.image_url,
+            timestamp=result.timestamp,
         )
-
-        db_record = await database.save_analysis(
-            image_path=storage_result["url"], nutrition=nutrition_analysis
-        )
-
-        response = FoodAnalysisResponse(
-            analysis_id=UUID(db_record["id"]),
-            nutrition=nutrition_analysis,
-            image_url=storage_result["url"],
-            timestamp=db_record["created_at"],
-        )
-
-        return response
 
     except ValueError as exc:
         logfire.warning(f"Validation error: {exc}")
@@ -421,36 +669,30 @@ async def analyze_food_image(
 @app.post("/analyze-base64", response_model=FoodAnalysisResponse, tags=["Analysis"])
 async def analyze_food_image_base64(
     request: FoodAnalysisRequest,
-    analyzer: GeminiAnalyzer = Depends(get_analyzer),
-    storage: StorageService = Depends(get_storage),
-    database: DatabaseService = Depends(get_database),
-    settings: Settings = Depends(get_settings),
+    analysis_service: AnalysisService = Depends(get_analysis_service),
 ):
-    """Analyze a food image from base64 encoded data."""
+    """
+    Analyze a food image from base64 encoded data.
+    
+    Same logic as /analyze, just different input format.
+    Both use the same AnalysisService - no duplication!
+    """
     try:
+        # Decode base64 image
         image_data = decode_base64_image(request.image_data)
-        prepared = prepare_image(
-            image_data, max_size_mb=settings.max_image_size_mb)
-
-        nutrition_analysis = await analyzer.analyze_image(
-            prepared=prepared, filename=request.filename or "image.jpg"
+        
+        # Delegate to service layer (same as /analyze!)
+        result = await analysis_service.analyze_and_store(
+            image_data=image_data,
+            filename=request.filename or "image.jpg"
         )
 
-        storage_result = await storage.upload_image(
-            image_data=prepared.image_bytes,
-            filename=request.filename,
-            content_type=prepared.content_type,
-        )
-
-        db_record = await database.save_analysis(
-            image_path=storage_result["url"], nutrition=nutrition_analysis
-        )
-
+        # Convert to API response model
         return FoodAnalysisResponse(
-            analysis_id=UUID(db_record["id"]),
-            nutrition=nutrition_analysis,
-            image_url=storage_result["url"],
-            timestamp=db_record["created_at"],
+            analysis_id=result.analysis_id,
+            nutrition=result.nutrition,
+            image_url=result.image_url,
+            timestamp=result.timestamp,
         )
 
     except ValueError as exc:
@@ -463,23 +705,25 @@ async def analyze_food_image_base64(
 
 @app.post("/telegram/webhook", include_in_schema=False)
 async def telegram_webhook(
+    request: Request,
     update: dict,
-    analyzer: GeminiAnalyzer = Depends(get_analyzer),
+    analysis_service: AnalysisService = Depends(get_analysis_service),
     storage: StorageService = Depends(get_storage),
     database: DatabaseService = Depends(get_database),
     settings: Settings = Depends(get_settings),
 ):
     """
-    Telegram webhook handler.
+    Telegram webhook handler with authentication.
     - Expects standard Telegram update payload.
     - Picks the largest photo, analyzes it, stores results, and replies with macros.
     """
     handled, payload, status_code = await process_telegram_update(
         update=update,
-        analyzer=analyzer,
+        analysis_service=analysis_service,
         storage=storage,
         database=database,
         settings=settings,
+        sessions=request.app.state.telegram_sessions,
     )
 
     content = {"ok": status_code < 400, "handled": handled}
@@ -490,7 +734,7 @@ async def telegram_webhook(
 
 
 @app.get("/analysis/{analysis_id}", tags=["History"])
-async def get_analysis(
+async def get_selected_analysis(
     analysis_id: UUID, database: DatabaseService = Depends(get_database)
 ):
     """Get a specific analysis by ID."""
@@ -505,14 +749,14 @@ async def get_history(
     limit: int = 10, offset: int = 0, database: DatabaseService = Depends(get_database)
 ):
     """Get recent analysis history."""
-    results = await database.get_recent_analyses(limit=limit, offset=offset)
+    results = await database.get_recent_analyses(limit=limit)
     return {"total": len(results), "data": results}
 
 
 @app.get("/statistics", tags=["Statistics"])
-async def get_statistics(database: DatabaseService = Depends(get_database)):
+async def get_statistic_within_n_days(database: DatabaseService = Depends(get_database), days:int=7):
     """Get analysis statistics."""
-    return await database.get_statistics()
+    return await database.get_statistic(days)
 
 
 @app.delete("/analysis/{analysis_id}", tags=["History"])

@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import logfire
 from anyio import to_thread
 from supabase import Client, create_client
+from datetime import datetime, timedelta
 
 from backend.models.models import NutritionAnalysis
 
@@ -27,7 +28,6 @@ class _BaseSupabaseService:
                 delay *= 2
         assert last_exc is not None
         raise last_exc
-
 
 class DatabaseService(_BaseSupabaseService):
     """Service for managing analysis records in Supabase database."""
@@ -76,7 +76,7 @@ class DatabaseService(_BaseSupabaseService):
         try:
             response = await self._run_with_retry(
                 lambda: self.client.table(self.table_name)
-                .select("*")
+                .select('id','image_path','raw_result','created_at')
                 .eq("id", str(analysis_id))
                 .execute()
             )
@@ -85,6 +85,18 @@ class DatabaseService(_BaseSupabaseService):
             return None
 
         return response.data[0] if response.data else None
+    
+    async def get_recent_analyses(self, limit: int=10) -> List[dict]:
+        '''Get recent analysis'''
+        response = await self._run_with_retry(
+            lambda: self.client.table(self.table_name)
+                        .select('id','image_path','raw_result','created_at')
+                        .order('created_at',desc=True)
+                        .limit(limit)
+                        .execute()
+        )
+        return response.data
+    
 
     async def delete_analysis(self, analysis_id: UUID) -> bool:
         try:
@@ -97,6 +109,84 @@ class DatabaseService(_BaseSupabaseService):
             logfire.error(f"Error deleting analysis {analysis_id}: {exc}")
             return False
 
+    def _extract_nutrition_from_raw(self, raw_result: dict) -> dict:
+        """
+        Extract nutrition data from raw_result. Exclude the case when there are no records
+        """
+        return {
+            'calories': raw_result.get('calories', 0),
+            'protein': raw_result.get('protein', 0),
+            'sugar': raw_result.get('sugar', 0),
+            'carbs': raw_result.get('carbs', 0),
+            'fat': raw_result.get('fat', 0),
+            'fiber': raw_result.get('fiber', 0),
+            'health_score': raw_result.get('health_score', 0)
+        }
+    
+    async def get_statistic(self, days: int=7):
+        '''Get nutrition statistic'''
+        start_date = datetime.utcnow() - timedelta(days=days)
+        response = await self._run_with_retry(
+            lambda: self.client.table(self.table_name)
+                        .select('id','created_at','raw_result')
+                        .gte('created_at',start_date)
+                        .execute()
+        )
+
+        analyses = response.data
+        if not analyses:
+            return {
+                'start_date':start_date.isoformat(),
+                "total_meals": 0,
+                "avg_calories": 0,
+                "avg_protein": 0,
+                "avg_sugar": 0,
+                "avg_carbs": 0,
+                "avg_fat": 0,
+                "avg_fiber": 0,
+                "avg_health_score": 0
+            }
+        
+        # Filter valid analyses
+        valid_analyses = [
+            a for a in analyses 
+            if a.get('raw_result') and all(
+                key in a['raw_result'] 
+                for key in ['calories', 'protein', 'sugar', 'carbs', 'fat', 'fiber']
+            )
+        ]
+
+        # Extract nutrition data
+        nutrition_data = [
+            self._extract_nutrition_from_raw(a['raw_result']) 
+            for a in valid_analyses
+        ]
+
+        total_meals = len(valid_analyses)
+        
+        # Calculate totals (safer with get() method and default 0)
+        total_calories = sum(a.get('calories', 0) for a in nutrition_data)
+        total_protein = sum(a.get('protein', 0) for a in nutrition_data)
+        total_sugar = sum(a.get('sugar', 0) for a in nutrition_data)
+        total_carbs = sum(a.get('carbs', 0) for a in nutrition_data)
+        total_fat = sum(a.get('fat', 0) for a in nutrition_data)
+        total_fiber = sum(a.get('fiber', 0) for a in nutrition_data)
+        
+        # Handle health_score separately (it's optional and can be None)
+        health_scores = [a['health_score'] for a in nutrition_data if a['health_score'] > 0]
+        avg_health_score = sum(health_scores) / len(health_scores) if health_scores else 0
+
+        return {
+            'start_date': start_date.isoformat(),
+            "total_meals": total_meals,
+            "avg_calories": round(total_calories / days, 1),
+            "avg_protein": round(total_protein / days, 1),
+            "avg_sugar": round(total_sugar / days, 1),
+            "avg_carbs": round(total_carbs / days, 1),
+            "avg_fat": round(total_fat / days, 1),
+            "avg_fiber": round(total_fiber / days, 1),
+            "avg_health_score": round(avg_health_score, 1)
+        }
 
 class StorageService(_BaseSupabaseService):
     """Service for managing file uploads to Supabase Storage."""

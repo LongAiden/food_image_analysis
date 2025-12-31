@@ -197,17 +197,21 @@ curl "http://localhost:8000/history?limit=5"
 ```
 
 ## How It Works (pipeline)
-1. Upload a single food image on the Telegram chatbot
-2. Validate image (size/format) and normalize (RGBA→RGB, re-encode, data URI).
-3. Send to Gemini for structured `NutritionAnalysis`.
-4. Upload processed image to Supabase Storage (public URL).
+1. Login with a credential in `.env` ![Telegram](images/telegram_interaction_1.png)
+2. Users can select various commands such as `/summary`, `/logout` ![Telegram](images/telegram_interaction_5.png)
+
+3. Upload a single food image on the Telegram chatbot
+4. Validate image (size/format) and normalize (RGBA→RGB, re-encode, data URI).
+5. Send to Gemini for structured `NutritionAnalysis`.
+6. Upload processed image to Supabase Storage (public URL).
 ![Supabase Bucket](images/supabse_buckets.png)
-5. Persist results + image URL in Supabase Postgres.
+7. Persist results + image URL in Supabase Postgres.
 ![Supabase](images/supabse_db.png)
-6. Return `FoodAnalysisResponse` (analysis_id, nutrition, image_url, timestamp).
-![Telegram](images/telegram_interaction.png)
-7. Logfire check:
+8. Return `FoodAnalysisResponse` (analysis_id, nutrition, image_url, timestamp).
+![Telegram](images/telegram_interaction_4.png)
+9. Logfire check:
 ![Logfire](images/logfire_2.png)
+10. Users choose to logout ![Telegram](images/telegram_interaction_2.png)
 
 ## Key Components
 

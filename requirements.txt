@@ -5,7 +5,7 @@ python-multipart==0.0.12
 
 # Pydantic
 pydantic
-pydantic-ai
+pydantic-ai-slim[google]
 pydantic-settings
 
 # AI/ML
@@ -14,7 +14,6 @@ google-generativeai==0.8.3
 # Database & Storage
 supabase==2.9.0
 postgrest==0.17.2
-griffe==0.49.0
 
 # Logging & Monitoring
 logfire
@@ -30,4 +29,6 @@ python-dotenv==1.0.1
 # Optional: Testing
 pytest==8.3.3
 pytest-asyncio==0.24.0
-httpx==0.27.2
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+

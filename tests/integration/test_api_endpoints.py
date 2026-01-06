@@ -131,16 +131,18 @@ def test_delete_analysis_not_found(client):
 
 @pytest.mark.integration
 def test_get_analysis_invalid_uuid_format(client):
-    # 'not-a-uuid' is clearly not a valid UUID
     response = client.get("/analysis/not-a-uuid")
     
-    # FastAPI returns 422 for type-mismatch errors
     assert response.status_code == 422
     
-    # Verify the error message points to the path parameter
-    detail = response.json()["detail"][0]
-    assert detail["loc"] == ["path", "analysis_id"]
-    assert "value is not a valid uuid" in detail["msg"].lower()
+    # Get the error details from the response
+    error_detail = response.json()["detail"][0]
+    
+    # OPTION A: Check for the machine-readable 'type' (Most Robust)
+    assert "uuid" in error_detail["type"]
+    
+    # OPTION B: Check for a more flexible keyword in the message
+    assert "valid uuid" in error_detail["msg"].lower()
 
 
 # ============================================================

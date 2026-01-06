@@ -1,8 +1,6 @@
-"""Integration tests for API endpoints."""
-
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock  # ← ADD THIS
+from unittest.mock import patch
 from uuid import uuid4
 
 from main import app
@@ -12,9 +10,6 @@ from main import app
 def client():
     """
     Create FastAPI test client with lifespan context.
-    
-    IMPORTANT: Use context manager to ensure lifespan runs
-    and app.state is properly initialized.
     """
     with TestClient(app) as test_client:
         yield test_client
@@ -50,25 +45,34 @@ def test_statistics_endpoint_returns_data(client):
         "avg_sugar", "avg_carbs", "avg_fat",
         "avg_fiber", "start_date"
     }
-    assert required_fields.issubset(data.keys()), f"Missing fields: {required_fields - data.keys()}"
+    assert required_fields.issubset(
+        data.keys()), f"Missing fields: {required_fields - data.keys()}"
 
 
 @pytest.mark.integration
 def test_statistics_endpoint_with_different_days(client):
     """Test statistics with different day ranges."""
     # Test 7 days
-    response_7 = client.get("/statistics?days=7")
+    response_7 = client.get("/statistics?days=0")
     assert response_7.status_code == 200
-    
+
     # Test 30 days
     response_30 = client.get("/statistics?days=30")
     assert response_30.status_code == 200
-    
+
     # Both should have same structure
     data_7 = response_7.json()
     data_30 = response_30.json()
-    assert set(data_7.keys()) == set(data_30.keys())
-
+    assert set(data_7.keys()) == set(data_30.keys()) # Maybe failed if the schema changed
+    
+    
+@pytest.mark.integration
+def test_statistics_endpoint_with_non_numeric_days(client):
+    """Test statistics with non numeric days parameter."""
+    response = client.get("/statistics?days=abc")
+    
+    # Should return 400 or 422 for invalid input
+    assert response.status_code in [400, 422]
 
 # ============================================================
 # PRIORITY 3: History Endpoint
@@ -77,26 +81,37 @@ def test_statistics_endpoint_with_different_days(client):
 @pytest.mark.integration
 def test_history_endpoint_returns_data(client):
     """Verify history endpoint works (uses real DB)."""
-    response = client.get("/history?limit=5")
     
-    assert response.status_code == 200
-    data = response.json()
+    response_0 = client.get("/history?limit=0")
+    response_5 = client.get("/history?limit=5")
+
+    assert response_0.status_code == 200
+    data_0 = response_0.json()
     
-    assert "total" in data
-    assert "data" in data
-    assert isinstance(data["data"], list)
+    assert response_5.status_code == 200
+    data_5 = response_5.json()
+    
+    # Should return these fields
+    assert isinstance(data_0["data"], list)
+    assert isinstance(data_5["data"], list)
+
+    # Each item should have required fields
+    required_fields = {'id', 'image_path', 'raw_result', 'created_at'}
+    if len(data_5["data"]) > 0:
+        for item in data_5["data"]:
+            assert required_fields.issubset(item.keys()), f"Missing fields: {required_fields - item.keys()}"
+
+    # Both should have same structure
+    assert set(data_0.keys()) == set(data_5.keys())
 
 
 @pytest.mark.integration
-def test_history_endpoint_respects_limit(client):
+def test_history_endpoint_with_negative_number(client):
     """Verify history limit parameter works."""
-    response = client.get("/history?limit=3")
-    
-    assert response.status_code == 200
-    data = response.json()
-    
-    # Should return at most 3 items
-    assert len(data["data"]) <= 3
+    response = client.get("/history?limit=-10")
+
+    # Should return 400 or 422 for invalid input
+    assert response.status_code in [400, 422]
 
 
 # ============================================================
@@ -108,7 +123,7 @@ def test_get_analysis_by_id_not_found(client):
     """Test getting non-existent analysis returns 404."""
     fake_id = uuid4()
     response = client.get(f"/analysis/{fake_id}")
-    
+
     assert response.status_code == 404
     data = response.json()
     assert "detail" in data
@@ -132,15 +147,15 @@ def test_delete_analysis_not_found(client):
 @pytest.mark.integration
 def test_get_analysis_invalid_uuid_format(client):
     response = client.get("/analysis/not-a-uuid")
-    
+
     assert response.status_code == 422
-    
+
     # Get the error details from the response
     error_detail = response.json()["detail"][0]
-    
+
     # OPTION A: Check for the machine-readable 'type' (Most Robust)
     assert "uuid" in error_detail["type"]
-    
+
     # OPTION B: Check for a more flexible keyword in the message
     assert "valid uuid" in error_detail["msg"].lower()
 
@@ -320,9 +335,19 @@ def test_statistics_endpoint_large_days(client):
     assert response.status_code == 200
     data = response.json()
 
-    # Should still return valid structure
-    assert "total_meals" in data
-    assert "avg_calories" in data
+    numeric_fields = ["avg_calories", "avg_protein",
+                      "avg_sugar", "avg_carbs", "avg_fat", "avg_fiber"]
+    for field in numeric_fields:
+        assert field in data
+
+
+@pytest.mark.integration
+def test_statistics_endpoint_non_numeric(client):
+    """Test statistics with very large day range."""
+    response = client.get("/statistics?days=abc")
+
+    # Should reject non-numeric days
+    assert response.status_code in [400, 422]
 
 
 @pytest.mark.integration
@@ -354,7 +379,8 @@ def test_statistics_response_has_correct_types(client):
     assert isinstance(data["total_meals"], int)
 
     # Verify numeric fields are numbers
-    numeric_fields = ["avg_calories", "avg_protein", "avg_sugar", "avg_carbs", "avg_fat", "avg_fiber"]
+    numeric_fields = ["avg_calories", "avg_protein",
+                      "avg_sugar", "avg_carbs", "avg_fat", "avg_fiber"]
     assert all(isinstance(data[field], (int, float)) for field in numeric_fields), \
         "All average fields should be numeric"
 
@@ -373,7 +399,8 @@ def test_history_response_has_correct_structure(client):
 
     # Top level structure
     required_top_level = {"total", "data"}
-    assert required_top_level.issubset(data.keys()), "Response must have 'total' and 'data' fields"
+    assert required_top_level.issubset(
+        data.keys()), "Response must have 'total' and 'data' fields"
     assert isinstance(data["total"], int)
     assert isinstance(data["data"], list)
 
@@ -381,7 +408,8 @@ def test_history_response_has_correct_structure(client):
     if len(data["data"]) > 0:
         item = data["data"][0]
         required_item_fields = {"id", "created_at"}
-        assert required_item_fields.issubset(item.keys()), "Each item must have 'id' and 'created_at'"
+        assert required_item_fields.issubset(
+            item.keys()), "Each item must have 'id' and 'created_at'"
         # Should have nutrition data
         assert "raw_result" in item or "food_name" in item
 

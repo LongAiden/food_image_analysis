@@ -38,7 +38,7 @@ async def test_save_and_retrieve_real_analysis(database_service):
     )
     
     # Act - Save to REAL database
-    saved = await database_service.save_analysis(
+    await database_service.save_analysis(
         image_path="https://example.com/test.jpg",
         nutrition=nutrition,
         analysis_id=test_id

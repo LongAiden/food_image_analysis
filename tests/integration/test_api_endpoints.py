@@ -130,6 +130,16 @@ def test_get_analysis_by_id_not_found(client):
     assert "not found" in data["detail"].lower()
 
 
+@pytest.mark.integration
+def test_get_analysis_with_non_uuid(client):
+    """Test getting non-existent analysis returns 404."""
+    fake_id = 'abc123'
+    response = client.get(f"/analysis/{fake_id}")
+
+    # Should return 400 or 422 for invalid UUID format
+    assert response.status_code in [400, 422]
+
+
 # ============================================================
 # PRIORITY 5: Delete Analysis Endpoint
 # ============================================================

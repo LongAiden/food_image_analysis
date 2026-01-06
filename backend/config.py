@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     supabase_bucket: str = Field(validation_alias="SUPABASE_BUCKETS")
     supabase_table: str = Field(validation_alias="SUPABASE_TABLE")
 
+    supabase_bucket_test: str = Field(validation_alias="SUPABASE_BUCKETS_TEST")
+    supabase_table_test: str = Field(validation_alias="SUPABASE_TABLE_TEST")
+
     # Support both legacy GEMINI_API_KEY and current GOOGLE_API_KEY
     google_api_key: str = Field(
         validation_alias=AliasChoices("GOOGLE_API_KEY", "GEMINI_API_KEY")

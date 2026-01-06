@@ -76,7 +76,7 @@ class DatabaseService(_BaseSupabaseService):
         try:
             response = await self._run_with_retry(
                 lambda: self.client.table(self.table_name)
-                .select('id','image_path','raw_result','created_at')
+                .select('id','image_path','raw_result','created_at','food_name')
                 .eq("id", str(analysis_id))
                 .execute()
             )

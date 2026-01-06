@@ -1,11 +1,17 @@
-"""Unit tests for DatabaseService."""
+"""Unit tests for DatabaseService.
+
+CURRENT IMPLEMENTATION: Tests the actual DatabaseService in backend/services/supabase_service.py
+Method name: get_statistic() (singular, not plural)
+
+NOTE: This will be refactored to SupabaseFoodAnalysisRepository in Phase 2.
+"""
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 from backend.services.supabase_service import DatabaseService
-from tests.fixtures.sample_data import SAMPLE_NUTRITION, SAMPLE_DB_RECORD
 
 
 class MockSupabaseResponse:
@@ -43,7 +49,6 @@ def database_service(mock_supabase_client):
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
 async def test_get_statistic_empty_database(database_service):
     """Test statistics with no data returns zeros."""
     # Arrange - Mock the database to return empty list
@@ -51,7 +56,7 @@ async def test_get_statistic_empty_database(database_service):
         mock_retry.return_value = MockSupabaseResponse([])
         
         # Act
-        result = await database_service.get_statistic(days=7)
+        result = await database_service.get_statistic(days=7)  # Note: singular in current code
     
     # Assert
     assert result["total_meals"] == 0
@@ -61,7 +66,6 @@ async def test_get_statistic_empty_database(database_service):
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
 async def test_get_statistic_with_valid_data(database_service):
     """Test statistics calculation with valid data."""
     # Arrange
@@ -97,7 +101,7 @@ async def test_get_statistic_with_valid_data(database_service):
     # Act
     with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
         mock_retry.return_value = MockSupabaseResponse(sample_records)
-        result = await database_service.get_statistic(days=7)
+        result = await database_service.get_statistic(days=7)  # Note: singular in current code
     
     # Assert
     assert result["total_meals"] == 2
@@ -108,7 +112,6 @@ async def test_get_statistic_with_valid_data(database_service):
 
 
 @pytest.mark.unit
-@pytest.mark.asyncio
 async def test_get_statistic_filters_invalid_records(database_service):
     """Test that invalid records are filtered out."""
     # Arrange
@@ -144,7 +147,7 @@ async def test_get_statistic_filters_invalid_records(database_service):
     # Act
     with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
         mock_retry.return_value = MockSupabaseResponse(sample_records)
-        result = await database_service.get_statistic(days=7)
+        result = await database_service.get_statistic(days=7)  # Note: singular in current code
     
     # Assert - Only 1 valid record should be counted
     assert result["total_meals"] == 1
@@ -182,11 +185,94 @@ def test_extract_nutrition_handles_missing_fields(database_service):
         "calories": 400,
         # Other fields missing
     }
-    
+
     # Act
     result = database_service._extract_nutrition_from_raw(raw_result)
-    
+
     # Assert
     assert result["calories"] == 400
     assert result["protein"] == 0  # Default
     assert result["sugar"] == 0     # Default
+
+
+@pytest.mark.unit
+async def test_get_analysis_by_id(database_service):
+    """Test getting a specific analysis by ID."""
+    # Arrange
+    test_id = str(uuid4())
+    sample_record = {
+        "id": test_id,
+        "image_path": "https://example.com/image.jpg",
+        "raw_result": {"calories": 500, "protein": 30},
+        "created_at": datetime.utcnow().isoformat()
+    }
+
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse([sample_record])
+        result = await database_service.get_analysis(test_id)
+
+    # Assert
+    assert result is not None
+    assert result["id"] == test_id
+    assert "image_path" in result
+
+
+@pytest.mark.unit
+async def test_get_analysis_not_found(database_service):
+    """Test getting analysis that doesn't exist."""
+    # Arrange
+    test_id = str(uuid4())
+
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse([])
+        result = await database_service.get_analysis(test_id)
+
+    # Assert
+    assert result is None
+
+
+@pytest.mark.unit
+async def test_get_recent_analyses(database_service):
+    """Test getting recent analyses with limit."""
+    # Arrange
+    sample_records = [
+        {
+            "id": str(uuid4()),
+            "image_path": "https://example.com/image1.jpg",
+            "raw_result": {"calories": 500},
+            "created_at": datetime.utcnow().isoformat()
+        },
+        {
+            "id": str(uuid4()),
+            "image_path": "https://example.com/image2.jpg",
+            "raw_result": {"calories": 300},
+            "created_at": (datetime.utcnow() - timedelta(hours=1)).isoformat()
+        }
+    ]
+
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse(sample_records)
+        result = await database_service.get_recent_analyses(limit=10)
+
+    # Assert
+    assert len(result) == 2
+    assert all("image_path" in record for record in result)
+    assert all("raw_result" in record for record in result)
+
+
+@pytest.mark.unit
+async def test_delete_analysis_success(database_service):
+    """Test successful analysis deletion."""
+    # Arrange
+    test_id = uuid4()
+
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse([])
+        result = await database_service.delete_analysis(test_id)
+
+    # Assert
+    assert result is True

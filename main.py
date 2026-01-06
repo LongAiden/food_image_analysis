@@ -3,16 +3,16 @@ from contextlib import asynccontextmanager
 from uuid import UUID
 
 import logfire
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
-from backend.services.analyses_service import AnalysisService, AnalysisResult
+from backend.services.analyses_service import AnalysisService
 import httpx
 
 from backend.config import Settings
 from backend.models.models import FoodAnalysisRequest, FoodAnalysisResponse
 from backend.services.gemini_analyzer import GeminiAnalyzer
-from backend.services.image_utils import decode_base64_image, prepare_image, PreparedImage
+from backend.services.image_utils import decode_base64_image, prepare_image
 from backend.services.supabase_service import DatabaseService, StorageService
 
 # Load and validate settings once
@@ -754,16 +754,23 @@ async def get_selected_analysis(
 
 @app.get("/history", tags=["History"])
 async def get_history(
-    limit: int = 10, offset: int = 0, database: DatabaseService = Depends(get_database)
+    limit: int = Query(10, ge=0), database: DatabaseService = Depends(get_database)
 ):
     """Get recent analysis history."""
+    if limit == 0:
+        return {"total": 0, "data": []}
+    
     results = await database.get_recent_analyses(limit=limit)
     return {"total": len(results), "data": results}
 
 
 @app.get("/statistics", tags=["Statistics"])
-async def get_statistic_within_n_days(database: DatabaseService = Depends(get_database), days:int=7):
+async def get_statistic_within_n_days(days:int=Query(7, ge=0), 
+                                      database: DatabaseService = Depends(get_database), ):
     """Get analysis statistics."""
+    if days == 0:
+        return {}
+
     return await database.get_statistic(days)
 
 

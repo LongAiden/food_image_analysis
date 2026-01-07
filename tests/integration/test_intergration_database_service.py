@@ -1,4 +1,6 @@
 """Integration tests for DatabaseService.
+
+Uses real Supabase database with test table from Settings.
 """
 
 import pytest
@@ -7,18 +9,33 @@ from backend.services.supabase_service import DatabaseService
 from backend.config import Settings
 
 
+# Load settings at module level for test verification
+settings = Settings()
+
+
 @pytest.fixture
 def database_service():
-    """Create DatabaseService with REAL test database connection."""
-    settings = Settings()  # Load from .env
+    """Create DatabaseService with REAL test database connection.
+
+    Uses test table from Settings to keep test data isolated.
+    """
+    test_settings = Settings()  # Load from .env
     return DatabaseService(
-        url=settings.supabase_url,
-        key=settings.supabase_service_key,
-        table_name=settings.supabase_table_test
+        url=test_settings.supabase_url,
+        key=test_settings.supabase_service_key,
+        table_name=test_settings.supabase_table_test  # ← Use TEST table!
     )
 
 
-@pytest.mark.integration  # ← Mark as integration
+@pytest.mark.integration
+def test_database_service_uses_test_table(database_service):
+    """Verify database service is using test table from Settings."""
+    assert database_service.table_name == settings.supabase_table_test
+    assert "test" in database_service.table_name.lower(), \
+        "Database service should use test table for integration tests"
+
+
+@pytest.mark.integration
 async def test_save_and_retrieve_real_analysis(database_service):
     """Test real database save and retrieve."""
     from backend.models.models import NutritionAnalysis

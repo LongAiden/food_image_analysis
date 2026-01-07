@@ -1,6 +1,7 @@
 """Integration tests for StorageService with real Supabase storage.
 
 These tests use actual test images and real Supabase storage operations.
+Test image: tests/test_image/image_test.png
 """
 
 import pytest
@@ -9,27 +10,43 @@ from backend.services.supabase_service import StorageService
 from backend.config import Settings
 
 
-# Test image paths
+# Load settings at module level for test verification
+settings = Settings()
+
+# Test image paths - Using real test image from tests/test_image/
 TEST_IMAGE_DIR = Path(__file__).parent.parent / "test_image"
 TEST_IMAGE_PNG = TEST_IMAGE_DIR / "image_test.png"
 
 
 @pytest.fixture
 def storage_service():
-    """Create StorageService with REAL test storage connection."""
-    settings = Settings()  # Load from .env
+    """Create StorageService with REAL test storage connection.
+
+    Uses test bucket from Settings to keep test data isolated.
+    """
+    test_settings = Settings()  # Load from .env
     return StorageService(
-        url=settings.supabase_url,
-        key=settings.supabase_service_key,
-        bucket_name=settings.supabase_bucket_test  # ← Use TEST bucket!
+        url=test_settings.supabase_url,
+        key=test_settings.supabase_service_key,
+        bucket_name=test_settings.supabase_bucket_test  # ← Use TEST bucket!
     )
 
 
 @pytest.fixture
 def test_image_data():
-    """Load test image data from file."""
+    """Load test image data from tests/test_image/image_test.png."""
+    if not TEST_IMAGE_PNG.exists():
+        raise FileNotFoundError(f"Test image not found: {TEST_IMAGE_PNG}")
+
     with open(TEST_IMAGE_PNG, "rb") as f:
         return f.read()
+
+
+@pytest.mark.integration
+def test_test_image_exists():
+    """Verify test image file exists before running storage tests."""
+    assert TEST_IMAGE_PNG.exists(), f"Test image not found at {TEST_IMAGE_PNG}"
+    assert TEST_IMAGE_PNG.stat().st_size > 0, "Test image is empty"
 
 
 @pytest.mark.integration
@@ -40,6 +57,8 @@ async def test_ensure_bucket_exists(storage_service):
 
     # Assert
     assert result is True
+    # Verify we're using the test bucket from Settings
+    assert storage_service.bucket_name == settings.supabase_bucket_test
 
 
 @pytest.mark.integration
@@ -276,7 +295,3 @@ async def test_delete_already_deleted_image(storage_service, test_image_data):
 
     # Assert - Should return False (already deleted)
     assert second_delete is False
-
-
-# Fix settings reference
-settings = Settings()

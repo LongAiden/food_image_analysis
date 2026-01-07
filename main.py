@@ -754,23 +754,34 @@ async def get_selected_analysis(
 
 @app.get("/history", tags=["History"])
 async def get_history(
-    limit: int = Query(10, ge=0), database: DatabaseService = Depends(get_database)
+    limit: int = Query(10, ge=1, le=1000, description="Number of results to return (1-1000)"),
+    database: DatabaseService = Depends(get_database)
 ):
-    """Get recent analysis history."""
-    if limit == 0:
-        return {"total": 0, "data": []}
-    
+    """Get recent analysis history.
+
+    Args:
+        limit: Number of results to return (1-1000)
+
+    Returns:
+        Dictionary with total count and data array
+    """
     results = await database.get_recent_analyses(limit=limit)
     return {"total": len(results), "data": results}
 
 
 @app.get("/statistics", tags=["Statistics"])
-async def get_statistic_within_n_days(days:int=Query(7, ge=0), 
-                                      database: DatabaseService = Depends(get_database), ):
-    """Get analysis statistics."""
-    if days == 0:
-        return {}
+async def get_statistic_within_n_days(
+    days: int = Query(7, ge=1, le=365, description="Number of days to analyze (1-365)"),
+    database: DatabaseService = Depends(get_database)
+):
+    """Get nutrition statistics for the last N days.
 
+    Args:
+        days: Number of days to include in statistics (1-365)
+
+    Returns:
+        Dictionary with aggregated nutrition statistics
+    """
     return await database.get_statistic(days)
 
 

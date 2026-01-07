@@ -1,4 +1,5 @@
 import pytest
+import random
 from unittest.mock import Mock, AsyncMock, patch
 from uuid import uuid4
 from datetime import datetime
@@ -13,13 +14,13 @@ def mock_services():
     return {
         'analyzer': Mock(analyze_image=AsyncMock(return_value=NutritionAnalysis(
             food_name="Test Food",
-            calories=300.0,
-            sugar=10.0,
-            protein=20.0,
-            carbs=30.0,
-            fat=10.0,
-            fiber=5.0,
-            health_score=80,
+            calories=random.uniform(0, 1000.0),
+            protein=random.uniform(0, 1000.0),
+            sugar=random.uniform(0, 1000.0),
+            carbs=random.uniform(0, 1000.0),
+            fat=random.uniform(0, 1000.0),
+            fiber=random.uniform(0, 1000.0),
+            health_score=random.randint(0, 1000),
             others="Test"
         ))),
         'storage': Mock(upload_image=AsyncMock(return_value={

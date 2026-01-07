@@ -53,7 +53,7 @@ def test_statistics_endpoint_returns_data(client):
 def test_statistics_endpoint_with_different_days(client):
     """Test statistics with different day ranges."""
     # Test 7 days
-    response_7 = client.get("/statistics?days=0")
+    response_7 = client.get("/statistics?days=7")
     assert response_7.status_code == 200
 
     # Test 30 days
@@ -81,28 +81,22 @@ def test_statistics_endpoint_with_non_numeric_days(client):
 @pytest.mark.integration
 def test_history_endpoint_returns_data(client):
     """Verify history endpoint works (uses real DB)."""
-    
-    response_0 = client.get("/history?limit=0")
+
     response_5 = client.get("/history?limit=5")
 
-    assert response_0.status_code == 200
-    data_0 = response_0.json()
-    
     assert response_5.status_code == 200
     data_5 = response_5.json()
-    
+
     # Should return these fields
-    assert isinstance(data_0["data"], list)
     assert isinstance(data_5["data"], list)
+    assert "total" in data_5
+    assert isinstance(data_5["total"], int)
 
     # Each item should have required fields
     required_fields = {'id', 'image_path', 'raw_result', 'created_at'}
     if len(data_5["data"]) > 0:
         for item in data_5["data"]:
             assert required_fields.issubset(item.keys()), f"Missing fields: {required_fields - item.keys()}"
-
-    # Both should have same structure
-    assert set(data_0.keys()) == set(data_5.keys())
 
 
 @pytest.mark.integration
@@ -264,54 +258,61 @@ def test_analyze_base64_empty_data(client):
 
 @pytest.mark.integration
 def test_history_endpoint_zero_limit(client):
-    """Test history with limit=0."""
+    """Test history with limit=0 returns validation error."""
     response = client.get("/history?limit=0")
 
-    # Should handle gracefully (return empty or error)
-    assert response.status_code in [200, 400, 422]
+    # Should reject limit=0 (minimum is 1)
+    assert response.status_code == 422
+    data = response.json()
+    assert "detail" in data
 
 
 @pytest.mark.integration
 def test_history_endpoint_negative_limit(client):
-    """Test history with negative limit."""
+    """Test history with negative limit returns validation error."""
     response = client.get("/history?limit=-5")
 
     # Should reject negative limit
-    assert response.status_code in [400, 422]
+    assert response.status_code == 422
+    data = response.json()
+    assert "detail" in data
 
 
 @pytest.mark.integration
 def test_history_endpoint_large_limit(client):
-    """Test history with very large limit."""
+    """Test history with limit over maximum (1000)."""
     response = client.get("/history?limit=10000")
 
-    # Should either accept or cap the limit
+    # Should reject limit > 1000
+    assert response.status_code == 422
+    data = response.json()
+    assert "detail" in data
+
+
+@pytest.mark.integration
+def test_history_endpoint_max_limit(client):
+    """Test history with maximum allowed limit (1000)."""
+    response = client.get("/history?limit=1000")
+
+    # Should accept limit=1000 (maximum)
     assert response.status_code == 200
     data = response.json()
-
-    # Even with large limit, shouldn't crash
     assert isinstance(data["data"], list)
 
 
 @pytest.mark.integration
-def test_history_endpoint_with_offset(client):
-    """Test history pagination with offset."""
-    # Get first page
-    response_page1 = client.get("/history?limit=5&offset=0")
-    assert response_page1.status_code == 200
+def test_history_endpoint_valid_limit(client):
+    """Test history with valid limit parameter."""
+    response = client.get("/history?limit=5")
 
-    # Get second page
-    response_page2 = client.get("/history?limit=5&offset=5")
-    assert response_page2.status_code == 200
+    # Should accept valid limit
+    assert response.status_code == 200
+    data = response.json()
 
-    # Both should have valid structure
-    data1 = response_page1.json()
-    data2 = response_page2.json()
-
-    assert "data" in data1
-    assert "data" in data2
-    assert isinstance(data1["data"], list)
-    assert isinstance(data2["data"], list)
+    assert "data" in data
+    assert "total" in data
+    assert isinstance(data["data"], list)
+    assert len(data["data"]) <= 5  # Should respect limit
 
 
 # ============================================================
@@ -320,35 +321,51 @@ def test_history_endpoint_with_offset(client):
 
 @pytest.mark.integration
 def test_statistics_endpoint_zero_days(client):
-    """Test statistics with days=0."""
+    """Test statistics with days=0 returns validation error."""
     response = client.get("/statistics?days=0")
 
-    # Should handle zero days gracefully
-    assert response.status_code in [200, 400, 422]
+    # Should reject days=0 (minimum is 1)
+    assert response.status_code == 422
+    data = response.json()
+    assert "detail" in data
 
 
 @pytest.mark.integration
 def test_statistics_endpoint_negative_days(client):
-    """Test statistics with negative days."""
+    """Test statistics with negative days returns validation error."""
     response = client.get("/statistics?days=-7")
 
     # Should reject negative days
-    assert response.status_code in [400, 422]
+    assert response.status_code == 422
+    data = response.json()
+    assert "detail" in data
 
 
 @pytest.mark.integration
-def test_statistics_endpoint_large_days(client):
-    """Test statistics with very large day range."""
+def test_statistics_endpoint_max_days(client):
+    """Test statistics with maximum allowed days (365)."""
     response = client.get("/statistics?days=365")
 
-    # Should handle large ranges
+    # Should handle max day range (365)
     assert response.status_code == 200
     data = response.json()
 
-    numeric_fields = ["avg_calories", "avg_protein",
-                      "avg_sugar", "avg_carbs", "avg_fat", "avg_fiber"]
-    for field in numeric_fields:
-        assert field in data
+    required_fields = {
+        "total_meals", "avg_calories", "avg_protein",
+        "avg_sugar", "avg_carbs", "avg_fat", "avg_fiber"
+    }
+    assert required_fields.issubset(data.keys())
+
+
+@pytest.mark.integration
+def test_statistics_endpoint_over_max_days(client):
+    """Test statistics with days over maximum (365)."""
+    response = client.get("/statistics?days=400")
+
+    # Should reject days > 365
+    assert response.status_code == 422
+    data = response.json()
+    assert "detail" in data
 
 
 @pytest.mark.integration
@@ -358,20 +375,6 @@ def test_statistics_endpoint_non_numeric(client):
 
     # Should reject non-numeric days
     assert response.status_code in [400, 422]
-
-
-@pytest.mark.integration
-def test_statistics_endpoint_default_days(client):
-    """Test statistics without days parameter (should use default)."""
-    response = client.get("/statistics")
-
-    assert response.status_code == 200
-    data = response.json()
-
-    # Should use default (likely 7 days)
-    assert "total_meals" in data
-    assert "start_date" in data
-
 
 # ============================================================
 # PRIORITY 10: API Response Schema Validation

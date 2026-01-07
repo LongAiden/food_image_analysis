@@ -234,6 +234,10 @@ class StorageService(_BaseSupabaseService):
     async def upload_image(
         self, image_data: bytes, filename: Optional[str] = None, content_type: str = "image/jpeg"
     ) -> dict:
+        # Validate image data is not empty
+        if not image_data or len(image_data) == 0:
+            raise ValueError("Image data cannot be empty")
+
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         unique_id = str(uuid4())[:8]
         extension = self._get_extension(content_type, filename)
@@ -257,6 +261,23 @@ class StorageService(_BaseSupabaseService):
 
     async def delete_image(self, path: str) -> bool:
         try:
+            # First check if file exists by attempting to get its public URL info
+            # If file doesn't exist, list operation will show it's not there
+            result = await self._run_with_retry(
+                lambda: self.client.storage.from_(self.bucket_name).list(path=path.rsplit('/', 1)[0] if '/' in path else '')
+            )
+
+            # Check if the file exists in the list
+            file_exists = any(
+                file.get('name') == (path.rsplit('/', 1)[-1] if '/' in path else path)
+                for file in result
+            )
+
+            if not file_exists:
+                logfire.warning(f"Image does not exist: {path}")
+                return False
+
+            # File exists, proceed with deletion
             await self._run_with_retry(lambda: self.client.storage.from_(self.bucket_name).remove([path]))
             logfire.info("Deleted image", path=path)
             return True

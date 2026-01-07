@@ -14,7 +14,7 @@ def database_service():
     return DatabaseService(
         url=settings.supabase_url,
         key=settings.supabase_service_key,
-        table_name=settings.supabase_table_test  # ← Use TEST table!
+        table_name=settings.supabase_table_test
     )
 
 

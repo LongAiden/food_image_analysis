@@ -12,7 +12,7 @@ import httpx
 from backend.config import Settings
 from backend.models.models import FoodAnalysisRequest, FoodAnalysisResponse
 from backend.services.gemini_analyzer import GeminiAnalyzer
-from backend.services.image_utils import decode_base64_image, prepare_image
+from backend.services.image_utils import decode_base64_image
 from backend.services.supabase_service import DatabaseService, StorageService
 
 # Load and validate settings once
@@ -399,7 +399,6 @@ async def handle_summary_command(
 async def process_telegram_update(
     update: dict,
     analysis_service: AnalysisService,
-    storage: StorageService,
     database: DatabaseService,
     settings: Settings,
     sessions: dict,
@@ -513,27 +512,15 @@ async def process_telegram_update(
         await send_telegram_message(chat_id, "Analyzing image...", settings)
 
         image_data, filename = await fetch_telegram_file(file_id=file_id, settings=settings)
-        prepared = prepare_image(image_data, max_size_mb=settings.max_image_size_mb)
         display_name = caption.strip()[:64] or filename
 
-        # Use shared analysis service - no duplication!
+        # Use shared analysis service - handles upload + database save internally
         result = await analysis_service.analyze_and_store(
             image_data=image_data,
             filename=display_name
         )
 
         logfire.info(f"Analysis successful for chat_id={chat_id}, analysis_id={result.analysis_id}")
-
-        storage_result = await storage.upload_image(
-            image_data=prepared.image_bytes,
-            filename=display_name,
-            content_type=prepared.content_type,
-        )
-
-        db_record = await database.save_analysis(
-            image_path=storage_result["url"], nutrition=result.nutrition
-        )
-
 
         reply = (
             f"Analysis complete:\n"
@@ -610,7 +597,6 @@ async def telegram_long_poll(app: FastAPI):
                     await process_telegram_update(
                         update=update,
                         analysis_service=app.state.analysis_service,
-                        storage=app.state.storage_service,
                         database=app.state.database_service,
                         settings=settings,
                         sessions=app.state.telegram_sessions,
@@ -716,7 +702,6 @@ async def telegram_webhook(
     request: Request,
     update: dict,
     analysis_service: AnalysisService = Depends(get_analysis_service),
-    storage: StorageService = Depends(get_storage),
     database: DatabaseService = Depends(get_database),
     settings: Settings = Depends(get_settings),
 ):
@@ -728,7 +713,6 @@ async def telegram_webhook(
     handled, payload, status_code = await process_telegram_update(
         update=update,
         analysis_service=analysis_service,
-        storage=storage,
         database=database,
         settings=settings,
         sessions=request.app.state.telegram_sessions,

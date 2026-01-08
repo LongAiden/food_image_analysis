@@ -276,3 +276,283 @@ async def test_delete_analysis_success(database_service):
 
     # Assert
     assert result is True
+
+
+@pytest.mark.unit
+async def test_delete_analysis_failure(database_service):
+    """Test deletion failure returns False."""
+    # Arrange
+    test_id = uuid4()
+
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.side_effect = Exception("Database error")
+        result = await database_service.delete_analysis(test_id)
+
+    # Assert
+    assert result is False
+
+
+# ============================================================
+# Edge Cases: get_statistic with invalid parameters
+# ============================================================
+
+@pytest.mark.unit
+async def test_get_statistic_with_zero_days(database_service):
+    """Test statistics with zero days."""
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse([])
+        result = await database_service.get_statistic(days=0)
+
+    # Assert - Should handle zero days gracefully
+    assert result["total_meals"] == 0
+    assert "start_date" in result
+
+
+@pytest.mark.unit
+async def test_get_statistic_with_negative_days(database_service):
+    """Test statistics with negative days (invalid input)."""
+    # Note: The service doesn't validate negative days, but timedelta handles it
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse([])
+        result = await database_service.get_statistic(days=-7)
+
+    # Assert - Should complete but with unusual date range
+    assert result["total_meals"] == 0
+    assert "start_date" in result
+
+
+@pytest.mark.unit
+async def test_get_statistic_with_very_large_days(database_service):
+    """Test statistics with very large day count."""
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse([])
+        result = await database_service.get_statistic(days=36500)  # 100 years
+
+    # Assert
+    assert result["total_meals"] == 0
+    assert "start_date" in result
+
+
+@pytest.mark.unit
+async def test_get_statistic_with_string_days(database_service):
+    """Test statistics with invalid string input for days parameter."""
+    # Act & Assert - Should raise TypeError when timedelta receives string
+    with pytest.raises(TypeError):
+        with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+            mock_retry.return_value = MockSupabaseResponse([])
+            await database_service.get_statistic(days="abc")
+
+
+@pytest.mark.unit
+async def test_get_statistic_with_float_days(database_service):
+    """Test statistics with float input for days parameter."""
+    # Act - Float should work (timedelta accepts float)
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse([])
+        result = await database_service.get_statistic(days=7.5)
+
+    # Assert
+    assert result["total_meals"] == 0
+    assert "start_date" in result
+
+
+@pytest.mark.unit
+async def test_get_statistic_with_none_days(database_service):
+    """Test statistics with None input for days parameter."""
+    # Act & Assert - Should raise TypeError
+    with pytest.raises(TypeError):
+        with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+            mock_retry.return_value = MockSupabaseResponse([])
+            await database_service.get_statistic(days=None)
+
+
+@pytest.mark.unit
+async def test_get_statistic_with_partial_valid_records(database_service):
+    """Test statistics with mix of valid and partial records."""
+    # Arrange - Some records missing health_score
+    sample_records = [
+        {
+            "id": "1",
+            "created_at": datetime.utcnow().isoformat(),
+            "raw_result": {
+                "calories": 500,
+                "protein": 30,
+                "sugar": 10,
+                "carbs": 50,
+                "fat": 20,
+                "fiber": 5,
+                "health_score": 0  # Zero health score
+            }
+        },
+        {
+            "id": "2",
+            "created_at": datetime.utcnow().isoformat(),
+            "raw_result": {
+                "calories": 300,
+                "protein": 20,
+                "sugar": 5,
+                "carbs": 30,
+                "fat": 10,
+                "fiber": 3,
+                "health_score": None  # None health score
+            }
+        }
+    ]
+
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse(sample_records)
+        result = await database_service.get_statistic(days=7)
+
+    # Assert - Should handle zero/None health scores
+    assert result["total_meals"] == 2
+    assert result["avg_health_score"] == 0  # No valid health scores
+
+
+# ============================================================
+# Edge Cases: get_analysis with invalid parameters
+# ============================================================
+
+@pytest.mark.unit
+async def test_get_analysis_with_exception(database_service):
+    """Test get_analysis when database raises exception."""
+    # Arrange
+    test_id = uuid4()
+
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.side_effect = Exception("Database connection error")
+        result = await database_service.get_analysis(test_id)
+
+    # Assert - Should return None on exception
+    assert result is None
+
+
+# ============================================================
+# Edge Cases: get_recent_analyses with invalid parameters
+# ============================================================
+
+@pytest.mark.unit
+async def test_get_recent_analyses_with_zero_limit(database_service):
+    """Test get_recent_analyses with zero limit."""
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse([])
+        result = await database_service.get_recent_analyses(limit=0)
+
+    # Assert
+    assert isinstance(result, list)
+    assert len(result) == 0
+
+
+@pytest.mark.unit
+async def test_get_recent_analyses_with_negative_limit(database_service):
+    """Test get_recent_analyses with negative limit."""
+    # Note: Supabase will handle negative limits, but service doesn't validate
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse([])
+        result = await database_service.get_recent_analyses(limit=-10)
+
+    # Assert - Should complete (Supabase handles it)
+    assert isinstance(result, list)
+
+
+@pytest.mark.unit
+async def test_get_recent_analyses_with_very_large_limit(database_service):
+    """Test get_recent_analyses with very large limit."""
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse([])
+        result = await database_service.get_recent_analyses(limit=10000)
+
+    # Assert
+    assert isinstance(result, list)
+    assert len(result) == 0
+
+
+@pytest.mark.unit
+async def test_get_recent_analyses_empty_database(database_service):
+    """Test get_recent_analyses with empty database."""
+    # Act
+    with patch.object(database_service, '_run_with_retry', new_callable=AsyncMock) as mock_retry:
+        mock_retry.return_value = MockSupabaseResponse([])
+        result = await database_service.get_recent_analyses(limit=10)
+
+    # Assert
+    assert isinstance(result, list)
+    assert len(result) == 0
+
+
+# ============================================================
+# Edge Cases: _extract_nutrition_from_raw with invalid inputs
+# ============================================================
+
+@pytest.mark.unit
+def test_extract_nutrition_from_empty_dict(database_service):
+    """Test extraction from empty dict uses all defaults."""
+    # Arrange
+    raw_result = {}
+
+    # Act
+    result = database_service._extract_nutrition_from_raw(raw_result)
+
+    # Assert - All should be 0 (defaults)
+    assert result["calories"] == 0
+    assert result["protein"] == 0
+    assert result["sugar"] == 0
+    assert result["carbs"] == 0
+    assert result["fat"] == 0
+    assert result["fiber"] == 0
+    assert result["health_score"] == 0
+
+
+@pytest.mark.unit
+def test_extract_nutrition_with_none_values(database_service):
+    """Test extraction with None values."""
+    # Arrange
+    raw_result = {
+        "calories": None,
+        "protein": None,
+        "sugar": 10,  # Some valid
+        "carbs": None,
+        "fat": None,
+        "fiber": None,
+        "health_score": None
+    }
+
+    # Act
+    result = database_service._extract_nutrition_from_raw(raw_result)
+
+    # Assert - None values should be returned as-is (get() returns None)
+    assert result["calories"] is None
+    assert result["sugar"] == 10
+    assert result["health_score"] is None
+
+
+@pytest.mark.unit
+def test_extract_nutrition_with_string_values(database_service):
+    """Test extraction with unexpected string values."""
+    # Arrange
+    raw_result = {
+        "calories": "500",  # String instead of number
+        "protein": "30",
+        "sugar": 10,  # Correct
+        "carbs": "fifty",  # Invalid string
+        "fat": 20,  # Correct
+        "fiber": "",  # Empty string
+        "health_score": "high"  # Invalid string
+    }
+
+    # Act
+    result = database_service._extract_nutrition_from_raw(raw_result)
+
+    # Assert - Service doesn't validate, just extracts
+    assert result["calories"] == "500"  # Returns as-is
+    assert result["protein"] == "30"
+    assert result["sugar"] == 10
+    assert result["carbs"] == "fifty"

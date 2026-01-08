@@ -56,13 +56,13 @@ Remember: Your estimates help people make informed dietary choices. Strive for a
 class NutritionAnalysis(BaseModel):
     """Structured nutrition analysis from food image"""
     food_name: str = Field(description="Identified name of the food item")
-    calories: float = Field(description="Total estimated calories in kcal for the food shown in the image")
-    sugar: float = Field(description="Total estimated sugar content in grams")
-    protein: float = Field(description="Total estimated protein content in grams")
-    carbs: float = Field(description="Total estimated carbohydrate content in grams")
-    fat: float = Field(description="Total estimated fat content in grams")
-    fiber: float = Field(description="Total estimated dietary fiber content in grams")
-    health_score: Optional[int] = Field(default=None, description="Overall health score (0-100) based on nutritional quality of the food")
+    calories: float = Field(gt=0, description="Total estimated calories in kcal for the food shown in the image")
+    sugar: float = Field(gt=0, description="Total estimated sugar content in grams")
+    protein: float = Field(gt=0, description="Total estimated protein content in grams")
+    carbs: float = Field(gt=0, description="Total estimated carbohydrate content in grams")
+    fat: float = Field(gt=0, description="Total estimated fat content in grams")
+    fiber: float = Field(gt=0, description="Total estimated dietary fiber content in grams")
+    health_score: int = Field(default=None, gt=0, le=100, description="Overall health score (0-100) based on nutritional quality of the food")
     others: str = Field(description="Additional nutritional information including fats, carbohydrates, fiber, vitamins, minerals, and any other relevant dietary notes")
 
 

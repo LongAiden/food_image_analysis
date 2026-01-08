@@ -164,17 +164,21 @@ class DatabaseService(_BaseSupabaseService):
 
         total_meals = len(valid_analyses)
         
-        # Calculate totals (safer with get() method and default 0)
-        total_calories = sum(a.get('calories', 0) for a in nutrition_data)
-        total_protein = sum(a.get('protein', 0) for a in nutrition_data)
-        total_sugar = sum(a.get('sugar', 0) for a in nutrition_data)
-        total_carbs = sum(a.get('carbs', 0) for a in nutrition_data)
-        total_fat = sum(a.get('fat', 0) for a in nutrition_data)
-        total_fiber = sum(a.get('fiber', 0) for a in nutrition_data)
-        
-        # Handle health_score separately (it's optional and can be None)
-        health_scores = [a['health_score'] for a in nutrition_data if a['health_score'] > 0]
-        avg_health_score = sum(health_scores) / len(health_scores) if health_scores else 0
+        # Calculate totals (handle None values by treating them as 0)
+        total_calories = sum(a.get('calories') or 0 for a in nutrition_data)
+        total_protein = sum(a.get('protein') or 0 for a in nutrition_data)
+        total_sugar = sum(a.get('sugar') or 0 for a in nutrition_data)
+        total_carbs = sum(a.get('carbs') or 0 for a in nutrition_data)
+        total_fat = sum(a.get('fat') or 0 for a in nutrition_data)
+        total_fiber = sum(a.get('fiber') or 0 for a in nutrition_data)
+
+        # Handle health_score separately (it's optional and can be None or 0)
+        # Only include valid health scores (> 0) in the average
+        valid_health_scores = [
+            a['health_score'] for a in nutrition_data
+            if a.get('health_score') is not None and a['health_score'] > 0
+        ]
+        avg_health_score = round(sum(valid_health_scores) / len(valid_health_scores), 1) if valid_health_scores else 0
 
         return {
             'start_date': start_date.isoformat(),
@@ -185,7 +189,7 @@ class DatabaseService(_BaseSupabaseService):
             "avg_carbs": round(total_carbs / days, 1),
             "avg_fat": round(total_fat / days, 1),
             "avg_fiber": round(total_fiber / days, 1),
-            "avg_health_score": round(avg_health_score, 1)
+            "avg_health_score": avg_health_score
         }
 
 class StorageService(_BaseSupabaseService):

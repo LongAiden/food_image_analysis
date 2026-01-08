@@ -7,6 +7,8 @@ FastAPI service that analyzes food images with Google Gemini and returns structu
 - AI-powered analysis via Gemini (structured output)
 - Upload via multipart, base64 JSON, or Telegram file_id
 - Supabase Storage for images + Supabase Postgres for results/history
+- **Strict data validation** - All nutritional values must be > 0
+- **Comprehensive test suite** - 50+ tests with 1962 lines of test code
 - FastAPI docs (`/docs`, `/redoc`) and health check
 - Logfire instrumentation for observability
 
@@ -246,9 +248,54 @@ curl "http://localhost:8000/history?limit=5"
 
 ### Testing
 
+The project includes a comprehensive test suite with 50+ tests covering unit and integration testing.
+
+**Test Coverage:**
+- 37 integration tests for API endpoints
+- 33 unit tests for database service
+- 10+ integration tests for Supabase service
+- Edge case validation (None, 0, invalid types)
+- Error handling verification
+
+**Running Tests:**
+
 ```bash
+# Run all tests
 pytest
+
+# Run specific test types
+pytest -m integration  # Integration tests only
+pytest -m unit         # Unit tests only
+
+# Run specific test file
+pytest tests/unit/test_database_service.py
+
+# Run with coverage report
+pytest --cov=backend --cov-report=html
 ```
+
+**Test Files:**
+- `tests/unit/test_database_service.py` - Database service unit tests (558 lines)
+- `tests/unit/test_analysis_service.py` - Analysis service unit tests (410 lines)
+- `tests/integration/test_api_endpoints.py` - API endpoint tests (540 lines)
+- `tests/integration/test_supabase_service.py` - Supabase integration tests (297 lines)
+- `tests/integration/test_intergration_database_service.py` - Database integration tests (157 lines)
+
+### Data Validation
+
+The `NutritionAnalysis` model enforces strict validation:
+
+```python
+- calories: must be > 0
+- sugar: must be > 0
+- protein: must be > 0
+- carbs: must be > 0
+- fat: must be > 0
+- fiber: must be > 0
+- health_score: must be between 1-100 (if provided)
+```
+
+Invalid values will raise a `ValidationError` from Pydantic.
 
 ### CORS Configuration
 

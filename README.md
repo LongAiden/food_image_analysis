@@ -306,6 +306,91 @@ Invalid values will raise a `ValidationError` from Pydantic.
 
 - Logfire instrumentation is enabled; configure `LOGFIRE_WRITE_TOKEN` to send data.
 
+## Limitations & Considerations
+
+**Current State:** This project is designed for **personal use** and **development/learning purposes**. It is **not production-ready** for multi-user or high-scale deployments.
+
+### Scalability
+
+- ⚠️ **Single Python Process** - No containerization (Docker) or orchestration (Kubernetes)
+- ⚠️ **Vertical Scaling Only** - Limited to single server resources
+- ⚠️ **No Load Balancing** - Cannot distribute traffic across multiple instances
+- ⚠️ **In-Memory Sessions** - Telegram sessions stored in `app.state` (lost on restart)
+
+**Impact:**
+- Cannot handle high concurrent requests efficiently
+- Limited by single CPU/memory constraints
+- Not suitable for production traffic
+
+### Request Handling
+
+- ⚠️ **No Request Queuing** - Large batches of simultaneous uploads may overwhelm the server
+- ⚠️ **No Rate Limiting** - No protection against abuse or DoS
+- ⚠️ **Synchronous Image Processing** - Large images may block other requests
+- ⚠️ **No Retry Mechanism** - Failed uploads require manual retry
+
+**Impact:**
+- May experience slowdowns or timeouts under load
+- Vulnerable to resource exhaustion
+- No graceful degradation
+
+### Deployment
+
+- ⚠️ **Local Development Only** - No cloud deployment configuration
+- ⚠️ **No CI/CD Pipeline** - Manual deployment required
+- ⚠️ **No Environment Separation** - Single .env file for all environments
+- ⚠️ **No Health Monitoring** - Basic `/health` endpoint only
+- ⚠️ **No Auto-Scaling** - Cannot dynamically adjust to traffic
+
+**Impact:**
+- Requires manual server setup and maintenance
+- No automated deployments or rollbacks
+- No infrastructure-as-code
+
+### Multi-User Support
+
+- ⚠️ **Single User Design** - No user isolation or multi-tenancy
+- ⚠️ **No Authentication** - Telegram uses simple password, API has no auth
+- ⚠️ **No Authorization** - All users can see all data
+- ⚠️ **Shared Database** - No per-user data segregation
+- ⚠️ **No Usage Quotas** - No limits per user
+
+**Impact:**
+- **NOT SUITABLE for multi-user production use**
+- All users share the same database and storage
+- No privacy or data isolation
+- No billing or usage tracking
+
+### Recommended Use Cases
+
+✅ **Good For:**
+- Personal nutrition tracking
+- Learning FastAPI and AI integration
+- Prototyping food analysis features
+- Development and testing
+- Single-user Telegram bot
+
+❌ **Not Suitable For:**
+- Production SaaS applications
+- Multi-tenant systems
+- High-traffic public APIs
+- Commercial deployment
+- Enterprise use cases
+
+### Future Improvements (Roadmap)
+
+To make this production-ready, consider:
+- 🐳 Dockerization for containerized deployment
+- ☸️ Kubernetes manifests for orchestration
+- 🔐 Proper authentication (OAuth2, API keys)
+- 👥 Multi-user support with data isolation
+- 📊 Request queuing (Celery/Redis)
+- 🚀 Cloud deployment (AWS/GCP/Azure)
+- 📈 Horizontal auto-scaling
+- 🔄 CI/CD pipeline (GitHub Actions)
+- 💾 Caching layer (Redis)
+- 📉 Rate limiting and quotas
+
 ## Error Handling
 
 - `400` invalid image/validation
